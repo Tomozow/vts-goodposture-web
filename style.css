@@ -99,15 +99,83 @@ button:hover {
   font-size: 1.15rem;
 }
 
-.params {
-  list-style: none;
-  padding: 0;
-  margin: 0.8rem 0 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.25rem 1rem;
+.param-card {
+  margin-top: 0.9rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #3a4154;
+}
+
+.param-head,
+.param-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.85rem;
   color: #c5cedd;
-  font-variant-numeric: tabular-nums;
+}
+
+.track {
+  position: relative;
+  height: 28px;
+  margin: 0.45rem 0;
+}
+
+.track-line,
+.track-range {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.track-line {
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: #12151c;
+  border-radius: 2px;
+}
+
+.track-range {
+  height: 12px;
+  background: rgba(61, 126, 255, 0.25);
+  border: 2px solid #3d7eff;
+  border-radius: 6px;
+}
+
+.handle,
+.live-dot,
+.base-dot {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.handle {
+  width: 8px;
+  height: 20px;
+  background: #3d7eff;
+  border: 1px solid white;
+  border-radius: 3px;
+  cursor: ew-resize;
+}
+
+.base-dot {
+  width: 8px;
+  height: 8px;
+  background: #27ae60;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.live-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: white;
+  border: 3px solid #e74c3c;
+}
+
+.weight {
+  width: 100%;
 }
 
 html.overlay,

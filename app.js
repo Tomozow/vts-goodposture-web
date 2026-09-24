@@ -3,7 +3,7 @@ const PARAMS = [
   "FacePositionX", "FacePositionY", "FacePositionZ",
 ];
 
-const WEIGHTS = {
+const DEFAULT_WEIGHTS = {
   FaceAngleX: 1.5,
   FaceAngleY: 2.0,
   FaceAngleZ: 1.0,
@@ -11,9 +11,6 @@ const WEIGHTS = {
   FacePositionY: 1.5,
   FacePositionZ: 2.0,
 };
-
-const SMOOTHING_ALPHA = 0.1;
-const POLL_MS = 200;
 const PARAM_NAME = "PostureScore";
 const PLUGIN_DEVELOPER = "Developer";
 
@@ -31,7 +28,14 @@ function defaultFace(angle, position) {
 function defaultSettings() {
   return {
     token: "",
+    host: "127.0.0.1",
     port: 8001,
+    autoStart: false,
+    pollingMs: 200,
+    alpha: 0.1,
+    weights: { ...DEFAULT_WEIGHTS },
+    displayMin: defaultFace(-30, -5),
+    displayMax: defaultFace(30, 5),
     baseline: defaultFace(0, 0),
     minLimits: defaultFace(-15, -0.5),
     maxLimits: defaultFace(15, 0.5),
@@ -50,7 +54,7 @@ function roundDigits(value, digits) {
   return Math.round(value * factor) / factor;
 }
 
-function calculateRawScore(current, minLimits, maxLimits) {
+function calculateRawScore(current, minLimits, maxLimits, weights) {
   let totalWeight = 0;
   let weightedPenalty = 0;
   for (const name of PARAMS) {
@@ -58,7 +62,7 @@ function calculateRawScore(current, minLimits, maxLimits) {
     if (value == null || Number.isNaN(value)) continue;
     const minLimit = minLimits[name];
     const maxLimit = maxLimits[name];
-    const weight = WEIGHTS[name];
+    const weight = weights[name];
     let deviation = 0;
     if (value < minLimit) {
       const outerSpan = name.includes("Angle") ? 15 : 0.5;
@@ -75,8 +79,8 @@ function calculateRawScore(current, minLimits, maxLimits) {
   return Math.max(0, roundDigits(100 * (1 - avgPenalty), 2));
 }
 
-function applyEma(prev, raw) {
-  return roundDigits(SMOOTHING_ALPHA * raw + (1 - SMOOTHING_ALPHA) * prev, 2);
+function applyEma(prev, raw, alpha) {
+  return roundDigits(alpha * raw + (1 - alpha) * prev, 2);
 }
 
 function scoreAppearance(score) {
@@ -95,7 +99,7 @@ function loadStore(key) {
   const settings = defaultSettings();
   try {
     const saved = JSON.parse(localStorage.getItem(key) || "{}");
-    for (const group of ["baseline", "minLimits", "maxLimits", "minOffsets", "maxOffsets"]) {
+    for (const group of ["baseline", "minLimits", "maxLimits", "minOffsets", "maxOffsets", "weights", "displayMin", "displayMax"]) {
       if (saved[group] && typeof saved[group] === "object") {
         for (const name of PARAMS) {
           if (Number.isFinite(Number(saved[group][name]))) {
@@ -105,7 +109,11 @@ function loadStore(key) {
       }
     }
     if (typeof saved.token === "string") settings.token = saved.token;
+    if (typeof saved.host === "string" && saved.host.trim()) settings.host = saved.host.trim();
     settings.port = clamp(saved.port, 1, 65535, settings.port);
+    settings.autoStart = Boolean(saved.autoStart);
+    settings.pollingMs = clamp(saved.pollingMs, 50, 900, settings.pollingMs);
+    settings.alpha = clamp(saved.alpha, 0.01, 1, settings.alpha);
     settings.alert = Boolean(saved.alert);
     settings.threshold = clamp(saved.threshold, 0, 100, settings.threshold);
     settings.duration = clamp(saved.duration, 0, 3600, settings.duration);
@@ -135,9 +143,9 @@ class VtsClient {
     return this.ws && this.ws.readyState === WebSocket.OPEN;
   }
 
-  connect(port) {
+  connect(host, port) {
     this.closedByUser = false;
-    const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    const socket = new WebSocket(`ws://${host}:${port}`);
     this.ws = socket;
     return new Promise((resolve, reject) => {
       const fail = (error) => {
@@ -322,11 +330,14 @@ function startControl() {
   const client = new VtsClient(CONTROL_PLUGIN);
   const status = document.getElementById("status");
   const hiddenWarn = document.getElementById("hidden-warn");
+  const hostInput = document.getElementById("host");
   const portInput = document.getElementById("port");
   const liveScore = document.getElementById("live-score");
   const liveStatus = document.getElementById("live-status");
-  const paramsList = document.getElementById("params");
+  const paramCards = document.getElementById("param-cards");
   const overlayUrl = document.getElementById("overlay-url");
+  const alphaInput = document.getElementById("alpha");
+  const alphaVal = document.getElementById("alpha-val");
 
   let monitoring = false;
   let score = 100;
@@ -334,13 +345,19 @@ function startControl() {
   let reconnectTimer = 0;
   let session = 0;
 
+  hostInput.value = settings.host;
   portInput.value = String(settings.port);
+  document.getElementById("auto-start").checked = settings.autoStart;
+  document.getElementById("polling").value = String(settings.pollingMs);
+  alphaInput.value = String(settings.alpha);
+  alphaVal.textContent = settings.alpha.toFixed(2);
   document.getElementById("alert").checked = settings.alert;
   document.getElementById("threshold").value = String(settings.threshold);
   document.getElementById("duration").value = String(settings.duration);
   document.getElementById("cooldown").value = String(settings.cooldown);
   document.getElementById("volume").value = String(settings.volume);
-  renderParams({});
+  buildParamCards();
+  paintParamCards({});
   refreshOverlayUrl();
   paintScore(100);
 
@@ -349,8 +366,15 @@ function startControl() {
   }
 
   function readForm() {
+    const host = hostInput.value.trim();
+    settings.host = host || "127.0.0.1";
+    hostInput.value = settings.host;
     settings.port = clamp(portInput.value, 1, 65535, 8001);
     portInput.value = String(settings.port);
+    settings.autoStart = document.getElementById("auto-start").checked;
+    settings.pollingMs = clamp(document.getElementById("polling").value, 50, 900, 200);
+    settings.alpha = clamp(alphaInput.value, 0.01, 1, 0.1);
+    alphaVal.textContent = settings.alpha.toFixed(2);
     settings.alert = document.getElementById("alert").checked;
     settings.threshold = clamp(document.getElementById("threshold").value, 0, 100, 70);
     settings.duration = clamp(document.getElementById("duration").value, 0, 3600, 3);
@@ -369,6 +393,7 @@ function startControl() {
       cooldown: String(settings.cooldown),
       volume: String(settings.volume),
       port: String(settings.port),
+      host: settings.host,
     });
     const path = location.pathname.endsWith("/") ? `${location.pathname}index.html` : location.pathname;
     overlayUrl.value = `${location.origin}${path}?${query}`;
@@ -382,13 +407,111 @@ function startControl() {
     liveStatus.style.color = look.color;
   }
 
-  function renderParams(values) {
-    paramsList.replaceChildren();
+  function percent(name, value) {
+    const min = settings.displayMin[name];
+    const max = settings.displayMax[name];
+    const span = max - min || 1;
+    return Math.max(0, Math.min(100, ((value - min) / span) * 100));
+  }
+
+  function buildParamCards() {
+    paramCards.replaceChildren();
     for (const name of PARAMS) {
-      const item = document.createElement("li");
-      const value = values[name];
-      item.textContent = `${name}: ${value == null || Number.isNaN(value) ? "—" : roundDigits(value, 3)}`;
-      paramsList.append(item);
+      const card = document.createElement("div");
+      card.className = "param-card";
+      card.innerHTML = `
+        <div class="param-head"><strong>${name}</strong><span id="live-${name}">現在 —</span></div>
+        <div class="track" data-name="${name}">
+          <div class="track-line"></div>
+          <div class="track-range" id="range-${name}"></div>
+          <div class="base-dot" id="base-${name}"></div>
+          <div class="live-dot" id="dot-${name}"></div>
+          <div class="handle" data-name="${name}" data-side="min"></div>
+          <div class="handle" data-name="${name}" data-side="max"></div>
+        </div>
+        <div class="param-meta">
+          <span id="min-label-${name}"></span>
+          <span id="base-label-${name}"></span>
+          <span id="max-label-${name}"></span>
+        </div>
+        <label>表示最小 <input class="view-min" data-name="${name}" type="number" step="0.1"></label>
+        <label>表示最大 <input class="view-max" data-name="${name}" type="number" step="0.1"></label>
+        <label>重み <input class="weight" data-name="${name}" type="range" min="0.1" max="5" step="0.1"></label>
+      `;
+      paramCards.append(card);
+    }
+    paramCards.querySelectorAll(".handle").forEach((handle) => {
+      handle.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        const name = handle.dataset.name;
+        const side = handle.dataset.side;
+        const track = handle.parentElement;
+        const move = (point) => {
+          const rect = track.getBoundingClientRect();
+          const ratio = Math.max(0, Math.min(1, (point.clientX - rect.left) / rect.width));
+          const viewMin = settings.displayMin[name];
+          const viewMax = settings.displayMax[name];
+          const value = roundDigits(viewMin + ratio * (viewMax - viewMin), 4);
+          if (side === "min") settings.minLimits[name] = Math.min(value, settings.maxLimits[name]);
+          else settings.maxLimits[name] = Math.max(value, settings.minLimits[name]);
+          paintParamCards();
+        };
+        const onMove = (point) => move(point);
+        const onUp = () => {
+          handle.releasePointerCapture(event.pointerId);
+          handle.removeEventListener("pointermove", onMove);
+          handle.removeEventListener("pointerup", onUp);
+          save();
+        };
+        handle.setPointerCapture(event.pointerId);
+        handle.addEventListener("pointermove", onMove);
+        handle.addEventListener("pointerup", onUp);
+        move(event);
+      });
+    });
+    paramCards.querySelectorAll(".view-min, .view-max, .weight").forEach((input) => {
+      input.addEventListener("change", () => {
+        const name = input.dataset.name;
+        if (input.classList.contains("weight")) {
+          settings.weights[name] = clamp(input.value, 0.1, 5, DEFAULT_WEIGHTS[name]);
+        } else if (input.classList.contains("view-min")) {
+          settings.displayMin[name] = Number(input.value);
+        } else {
+          settings.displayMax[name] = Number(input.value);
+        }
+        if (settings.displayMin[name] >= settings.displayMax[name]) {
+          settings.displayMax[name] = settings.displayMin[name] + 1;
+        }
+        save();
+        paintParamCards();
+      });
+    });
+  }
+
+  function paintParamCards(values) {
+    for (const name of PARAMS) {
+      const minPct = percent(name, settings.minLimits[name]);
+      const maxPct = percent(name, settings.maxLimits[name]);
+      const range = document.getElementById(`range-${name}`);
+      range.style.left = `${minPct}%`;
+      range.style.width = `${Math.max(0, maxPct - minPct)}%`;
+      document.getElementById(`base-${name}`).style.left = `${percent(name, settings.baseline[name])}%`;
+      const handles = paramCards.querySelectorAll(`.handle[data-name="${name}"]`);
+      handles[0].style.left = `${minPct}%`;
+      handles[1].style.left = `${maxPct}%`;
+      document.getElementById(`min-label-${name}`).textContent = `最小 ${settings.minLimits[name].toFixed(2)}`;
+      document.getElementById(`base-label-${name}`).textContent = `基準 ${settings.baseline[name].toFixed(2)}`;
+      document.getElementById(`max-label-${name}`).textContent = `最大 ${settings.maxLimits[name].toFixed(2)}`;
+      const viewMin = paramCards.querySelector(`.view-min[data-name="${name}"]`);
+      const viewMax = paramCards.querySelector(`.view-max[data-name="${name}"]`);
+      const weight = paramCards.querySelector(`.weight[data-name="${name}"]`);
+      if (document.activeElement !== viewMin) viewMin.value = String(settings.displayMin[name]);
+      if (document.activeElement !== viewMax) viewMax.value = String(settings.displayMax[name]);
+      if (document.activeElement !== weight) weight.value = String(settings.weights[name]);
+      if (values && values[name] != null && !Number.isNaN(values[name])) {
+        document.getElementById(`dot-${name}`).style.left = `${percent(name, values[name])}%`;
+        document.getElementById(`live-${name}`).textContent = `現在 ${roundDigits(values[name], 3)}`;
+      }
     }
   }
 
@@ -402,7 +525,7 @@ function startControl() {
     readForm();
     setStatus(`ws://127.0.0.1:${settings.port} に接続しています`);
     try {
-      await client.connect(settings.port);
+      await client.connect(settings.host, settings.port);
       if (current !== session) return;
       setStatus("認証しています");
       await client.authenticate(settings, save);
@@ -418,7 +541,13 @@ function startControl() {
         throw new Error(apiErrorText(created) || "PostureScore を作成できません");
       }
       setStatus("接続しました");
-      if (monitoring) scheduleLoop(0);
+      if (settings.autoStart) monitoring = true;
+      if (monitoring) {
+        score = 100;
+        paintScore(score);
+        setStatus("監視中");
+        scheduleLoop(0);
+      }
     } catch (error) {
       if (current !== session) return;
       setStatus(error.message || "接続に失敗しました");
@@ -450,7 +579,7 @@ function startControl() {
     if (!monitoring || !client.connected) return;
     if (document.visibilityState !== "visible") {
       updateHiddenWarn();
-      scheduleLoop(POLL_MS);
+      scheduleLoop(settings.pollingMs);
       return;
     }
     const started = performance.now();
@@ -458,9 +587,9 @@ function startControl() {
       const listed = await client.request("InputParameterListRequest", {});
       const values = readListedParams(listed);
       if (values) {
-        renderParams(values);
-        const raw = calculateRawScore(values, settings.minLimits, settings.maxLimits);
-        score = applyEma(score, raw);
+        paintParamCards(values);
+        const raw = calculateRawScore(values, settings.minLimits, settings.maxLimits, settings.weights);
+        score = applyEma(score, raw, settings.alpha);
         paintScore(score);
         const injected = await client.request("InjectParameterDataRequest", {
           faceFound: true,
@@ -474,7 +603,7 @@ function startControl() {
     } catch (error) {
       if (!client.closedByUser) setStatus(error.message || "監視に失敗しました");
     }
-    scheduleLoop(Math.max(0, POLL_MS - (performance.now() - started)));
+    scheduleLoop(Math.max(0, settings.pollingMs - (performance.now() - started)));
   }
 
   document.getElementById("connect").addEventListener("click", () => {
@@ -528,7 +657,7 @@ function startControl() {
         settings.maxLimits[name] = roundDigits(base + settings.maxOffsets[name], 4);
       }
       save();
-      renderParams(values);
+      paintParamCards(values);
       setStatus("今の姿勢を基準にしました");
     } catch (error) {
       setStatus(error.message || "基準を取れません");
@@ -548,7 +677,32 @@ function startControl() {
     }
   });
 
-  for (const id of ["port", "alert", "threshold", "duration", "cooldown", "volume"]) {
+  document.getElementById("save-offsets").addEventListener("click", () => {
+    for (const name of PARAMS) {
+      settings.minOffsets[name] = roundDigits(settings.minLimits[name] - settings.baseline[name], 4);
+      settings.maxOffsets[name] = roundDigits(settings.maxLimits[name] - settings.baseline[name], 4);
+    }
+    save();
+    setStatus("現在の許容値を保存しました");
+  });
+
+  document.getElementById("reset-offsets").addEventListener("click", () => {
+    settings.minOffsets = defaultFace(-15, -0.5);
+    settings.maxOffsets = defaultFace(15, 0.5);
+    for (const name of PARAMS) {
+      settings.minLimits[name] = roundDigits(settings.baseline[name] + settings.minOffsets[name], 4);
+      settings.maxLimits[name] = roundDigits(settings.baseline[name] + settings.maxOffsets[name], 4);
+    }
+    save();
+    paintParamCards();
+    setStatus("許容値を初期値に戻しました");
+  });
+
+  alphaInput.addEventListener("input", () => {
+    alphaVal.textContent = clamp(alphaInput.value, 0.01, 1, 0.1).toFixed(2);
+  });
+
+  for (const id of ["host", "port", "auto-start", "polling", "alpha", "alert", "threshold", "duration", "cooldown", "volume"]) {
     document.getElementById(id).addEventListener("change", readForm);
   }
 
@@ -564,6 +718,7 @@ function startOverlay() {
   const cooldown = clamp(query.get("cooldown"), 0, 3600, 10);
   const volume = clamp(query.get("volume"), 0, 1, 0.5);
   const port = clamp(query.get("port"), 1, 65535, 8001);
+  const host = (query.get("host") || "127.0.0.1").trim();
 
   const storeKey = "vtsGoodPosture.overlay";
   const settings = loadStore(storeKey);
@@ -635,7 +790,7 @@ function startOverlay() {
 
   async function openSession() {
     try {
-      await client.connect(port);
+      await client.connect(host, port);
       await client.authenticate(settings, save);
       poll();
     } catch (_) {
@@ -664,7 +819,7 @@ function startOverlay() {
       showMissing();
       return;
     }
-    window.setTimeout(poll, POLL_MS);
+    window.setTimeout(poll, 200);
   }
 
   showMissing();
