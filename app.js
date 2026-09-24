@@ -1,0 +1,674 @@
+const PARAMS = [
+  "FaceAngleX", "FaceAngleY", "FaceAngleZ",
+  "FacePositionX", "FacePositionY", "FacePositionZ",
+];
+
+const WEIGHTS = {
+  FaceAngleX: 1.5,
+  FaceAngleY: 2.0,
+  FaceAngleZ: 1.0,
+  FacePositionX: 0.5,
+  FacePositionY: 1.5,
+  FacePositionZ: 2.0,
+};
+
+const SMOOTHING_ALPHA = 0.1;
+const POLL_MS = 200;
+const PARAM_NAME = "PostureScore";
+const PLUGIN_DEVELOPER = "Developer";
+
+const CONTROL_PLUGIN = "VTS GoodPosture";
+const OVERLAY_PLUGIN = "VTS GoodPosture Overlay";
+
+function defaultFace(angle, position) {
+  const values = {};
+  for (const name of PARAMS) {
+    values[name] = name.includes("Angle") ? angle : position;
+  }
+  return values;
+}
+
+function defaultSettings() {
+  return {
+    token: "",
+    port: 8001,
+    baseline: defaultFace(0, 0),
+    minLimits: defaultFace(-15, -0.5),
+    maxLimits: defaultFace(15, 0.5),
+    minOffsets: defaultFace(-15, -0.5),
+    maxOffsets: defaultFace(15, 0.5),
+    alert: false,
+    threshold: 70,
+    duration: 3,
+    cooldown: 10,
+    volume: 0.5,
+  };
+}
+
+function roundDigits(value, digits) {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
+function calculateRawScore(current, minLimits, maxLimits) {
+  let totalWeight = 0;
+  let weightedPenalty = 0;
+  for (const name of PARAMS) {
+    const value = current[name];
+    if (value == null || Number.isNaN(value)) continue;
+    const minLimit = minLimits[name];
+    const maxLimit = maxLimits[name];
+    const weight = WEIGHTS[name];
+    let deviation = 0;
+    if (value < minLimit) {
+      const outerSpan = name.includes("Angle") ? 15 : 0.5;
+      deviation = Math.min((minLimit - value) / Math.max(outerSpan, 1e-6), 1);
+    } else if (value > maxLimit) {
+      const outerSpan = name.includes("Angle") ? 15 : 0.5;
+      deviation = Math.min((value - maxLimit) / Math.max(outerSpan, 1e-6), 1);
+    }
+    weightedPenalty += deviation * weight;
+    totalWeight += weight;
+  }
+  if (totalWeight === 0) return 100;
+  const avgPenalty = weightedPenalty / totalWeight;
+  return Math.max(0, roundDigits(100 * (1 - avgPenalty), 2));
+}
+
+function applyEma(prev, raw) {
+  return roundDigits(SMOOTHING_ALPHA * raw + (1 - SMOOTHING_ALPHA) * prev, 2);
+}
+
+function scoreAppearance(score) {
+  if (score >= 80) return { label: "良好", color: "#27ae60" };
+  if (score >= 60) return { label: "注意", color: "#e67e22" };
+  return { label: "危険", color: "#e74c3c" };
+}
+
+function clamp(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+function loadStore(key) {
+  const settings = defaultSettings();
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || "{}");
+    for (const group of ["baseline", "minLimits", "maxLimits", "minOffsets", "maxOffsets"]) {
+      if (saved[group] && typeof saved[group] === "object") {
+        for (const name of PARAMS) {
+          if (Number.isFinite(Number(saved[group][name]))) {
+            settings[group][name] = Number(saved[group][name]);
+          }
+        }
+      }
+    }
+    if (typeof saved.token === "string") settings.token = saved.token;
+    settings.port = clamp(saved.port, 1, 65535, settings.port);
+    settings.alert = Boolean(saved.alert);
+    settings.threshold = clamp(saved.threshold, 0, 100, settings.threshold);
+    settings.duration = clamp(saved.duration, 0, 3600, settings.duration);
+    settings.cooldown = clamp(saved.cooldown, 0, 3600, settings.cooldown);
+    settings.volume = clamp(saved.volume, 0, 1, settings.volume);
+  } catch (_) {
+    /* 壊れた保存値は初期値のまま使う */
+  }
+  return settings;
+}
+
+function saveStore(key, settings) {
+  const copy = { ...settings, token: settings.token };
+  localStorage.setItem(key, JSON.stringify(copy));
+}
+
+class VtsClient {
+  constructor(pluginName) {
+    this.pluginName = pluginName;
+    this.ws = null;
+    this.queue = [];
+    this.pumping = false;
+    this.closedByUser = false;
+  }
+
+  get connected() {
+    return this.ws && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  connect(port) {
+    this.closedByUser = false;
+    const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    this.ws = socket;
+    return new Promise((resolve, reject) => {
+      const fail = (error) => {
+        socket.removeEventListener("open", onOpen);
+        reject(error);
+      };
+      const onOpen = () => {
+        socket.removeEventListener("error", onError);
+        resolve();
+      };
+      const onError = () => fail(new Error("VTube Studio に接続できません"));
+      socket.addEventListener("open", onOpen, { once: true });
+      socket.addEventListener("error", onError, { once: true });
+      socket.addEventListener("message", (event) => {
+        let message;
+        try {
+          message = JSON.parse(event.data);
+        } catch (_) {
+          return;
+        }
+        const waiter = this.queue.find((item) => item.requestID === message.requestID && item.sent);
+        if (!waiter) return;
+        waiter.settle(message);
+      });
+      socket.addEventListener("close", (event) => {
+        if (socket.ignoreClose) return;
+        const reason = event.code === 1006
+          ? "ローカル接続が拒否された可能性があります。Chrome のローカルネットワークアクセスを許可してください"
+          : `切断されました (${event.code})`;
+        this.failPending(new Error(reason));
+        if (this.onClose && !this.closedByUser) this.onClose(event.code, reason);
+      });
+    });
+  }
+
+  close() {
+    this.closedByUser = true;
+    this.failPending(new Error("切断しました"));
+    const socket = this.ws;
+    this.ws = null;
+    if (socket) {
+      socket.ignoreClose = true;
+      socket.close();
+    }
+  }
+
+  failPending(error) {
+    const pending = this.queue.splice(0);
+    for (const item of pending) item.fail(error);
+  }
+
+  request(messageType, data) {
+    const requestID = `${messageType}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return new Promise((resolve, reject) => {
+      const item = {
+        requestID,
+        messageType,
+        data,
+        sent: false,
+        settle: (message) => {
+          if (item.done) return;
+          item.done = true;
+          clearTimeout(item.timer);
+          resolve(message);
+        },
+        fail: (error) => {
+          if (item.done) return;
+          item.done = true;
+          clearTimeout(item.timer);
+          reject(error);
+        },
+      };
+      item.timer = setTimeout(() => {
+        item.fail(new Error("VTube Studio の応答がタイムアウトしました"));
+        if (this.ws) this.ws.close();
+      }, 5000);
+      this.queue.push(item);
+      this.pump();
+    });
+  }
+
+  async pump() {
+    if (this.pumping) return;
+    this.pumping = true;
+    while (this.queue.length) {
+      const item = this.queue[0];
+      if (!this.connected) {
+        this.failPending(new Error("VTube Studio に接続されていません"));
+        break;
+      }
+      item.sent = true;
+      this.ws.send(JSON.stringify({
+        apiName: "VTubeStudioPublicAPI",
+        apiVersion: "1.0",
+        requestID: item.requestID,
+        messageType: item.messageType,
+        data: item.data,
+      }));
+      try {
+        await new Promise((resolve, reject) => {
+          const prevSettle = item.settle;
+          const prevFail = item.fail;
+          item.settle = (message) => {
+            prevSettle(message);
+            resolve();
+          };
+          item.fail = (error) => {
+            prevFail(error);
+            reject(error);
+          };
+        });
+      } catch (_) {
+        break;
+      }
+      if (this.queue[0] === item) this.queue.shift();
+    }
+    this.pumping = false;
+  }
+
+  async authenticate(settings, save) {
+    const identity = {
+      pluginName: this.pluginName,
+      pluginDeveloper: PLUGIN_DEVELOPER,
+    };
+    if (settings.token) {
+      const authed = await this.request("AuthenticationRequest", {
+        ...identity,
+        authenticationToken: settings.token,
+      });
+      if (authed.data && authed.data.authenticated) return;
+      settings.token = "";
+      save();
+    }
+    const issued = await this.request("AuthenticationTokenRequest", identity);
+    if (issued.messageType === "APIError" || !issued.data || !issued.data.authenticationToken) {
+      throw new Error(apiErrorText(issued) || "トークンを取得できません");
+    }
+    settings.token = issued.data.authenticationToken;
+    save();
+    const authed = await this.request("AuthenticationRequest", {
+      ...identity,
+      authenticationToken: settings.token,
+    });
+    if (!authed.data || !authed.data.authenticated) {
+      settings.token = "";
+      save();
+      throw new Error((authed.data && authed.data.reason) || "認証に失敗しました");
+    }
+  }
+}
+
+function apiErrorText(message) {
+  if (!message || message.messageType !== "APIError" || !message.data) return "";
+  const id = message.data.errorID;
+  const text = message.data.message || "";
+  return id ? `${text} (${id})` : text;
+}
+
+function readListedParams(message) {
+  if (!message || message.messageType !== "InputParameterListResponse" || !message.data) return null;
+  const values = {};
+  for (const group of ["defaultParameters", "customParameters"]) {
+    for (const param of message.data[group] || []) {
+      if (param.name != null && param.value != null) values[param.name] = Number(param.value);
+    }
+  }
+  return values;
+}
+
+function boot() {
+  if (document.documentElement.classList.contains("overlay")) {
+    startOverlay();
+  } else {
+    startControl();
+  }
+}
+
+function startControl() {
+  const storeKey = "vtsGoodPosture.control";
+  const settings = loadStore(storeKey);
+  const save = () => saveStore(storeKey, settings);
+  const client = new VtsClient(CONTROL_PLUGIN);
+  const status = document.getElementById("status");
+  const hiddenWarn = document.getElementById("hidden-warn");
+  const portInput = document.getElementById("port");
+  const liveScore = document.getElementById("live-score");
+  const liveStatus = document.getElementById("live-status");
+  const paramsList = document.getElementById("params");
+  const overlayUrl = document.getElementById("overlay-url");
+
+  let monitoring = false;
+  let score = 100;
+  let loopTimer = 0;
+  let reconnectTimer = 0;
+  let session = 0;
+
+  portInput.value = String(settings.port);
+  document.getElementById("alert").checked = settings.alert;
+  document.getElementById("threshold").value = String(settings.threshold);
+  document.getElementById("duration").value = String(settings.duration);
+  document.getElementById("cooldown").value = String(settings.cooldown);
+  document.getElementById("volume").value = String(settings.volume);
+  renderParams({});
+  refreshOverlayUrl();
+  paintScore(100);
+
+  function setStatus(text) {
+    status.textContent = text;
+  }
+
+  function readForm() {
+    settings.port = clamp(portInput.value, 1, 65535, 8001);
+    portInput.value = String(settings.port);
+    settings.alert = document.getElementById("alert").checked;
+    settings.threshold = clamp(document.getElementById("threshold").value, 0, 100, 70);
+    settings.duration = clamp(document.getElementById("duration").value, 0, 3600, 3);
+    settings.cooldown = clamp(document.getElementById("cooldown").value, 0, 3600, 10);
+    settings.volume = clamp(document.getElementById("volume").value, 0, 1, 0.5);
+    save();
+    refreshOverlayUrl();
+  }
+
+  function refreshOverlayUrl() {
+    const query = new URLSearchParams({
+      overlay: "1",
+      alert: settings.alert ? "1" : "0",
+      threshold: String(settings.threshold),
+      duration: String(settings.duration),
+      cooldown: String(settings.cooldown),
+      volume: String(settings.volume),
+      port: String(settings.port),
+    });
+    const path = location.pathname.endsWith("/") ? `${location.pathname}index.html` : location.pathname;
+    overlayUrl.value = `${location.origin}${path}?${query}`;
+  }
+
+  function paintScore(value) {
+    const look = scoreAppearance(value);
+    liveScore.textContent = String(value);
+    liveScore.style.color = look.color;
+    liveStatus.textContent = look.label;
+    liveStatus.style.color = look.color;
+  }
+
+  function renderParams(values) {
+    paramsList.replaceChildren();
+    for (const name of PARAMS) {
+      const item = document.createElement("li");
+      const value = values[name];
+      item.textContent = `${name}: ${value == null || Number.isNaN(value) ? "—" : roundDigits(value, 3)}`;
+      paramsList.append(item);
+    }
+  }
+
+  function updateHiddenWarn() {
+    hiddenWarn.hidden = document.visibilityState === "visible";
+  }
+
+  async function openSession() {
+    window.clearTimeout(reconnectTimer);
+    const current = ++session;
+    readForm();
+    setStatus(`ws://127.0.0.1:${settings.port} に接続しています`);
+    try {
+      await client.connect(settings.port);
+      if (current !== session) return;
+      setStatus("認証しています");
+      await client.authenticate(settings, save);
+      if (current !== session) return;
+      const created = await client.request("ParameterCreationRequest", {
+        parameterName: PARAM_NAME,
+        explanation: "Posture score 0-100 from VTS GoodPosture plugin",
+        min: 0,
+        max: 100,
+        defaultValue: 100,
+      });
+      if (created.messageType === "APIError") {
+        throw new Error(apiErrorText(created) || "PostureScore を作成できません");
+      }
+      setStatus("接続しました");
+      if (monitoring) scheduleLoop(0);
+    } catch (error) {
+      if (current !== session) return;
+      setStatus(error.message || "接続に失敗しました");
+      scheduleReconnect();
+    }
+  }
+
+  function scheduleReconnect() {
+    if (client.closedByUser) return;
+    window.clearTimeout(reconnectTimer);
+    reconnectTimer = window.setTimeout(() => {
+      openSession();
+    }, 2000);
+  }
+
+  client.onClose = (code, reason) => {
+    if (session === 0) return;
+    setStatus(reason);
+    scheduleReconnect();
+  };
+
+  function scheduleLoop(delay) {
+    window.clearTimeout(loopTimer);
+    if (!monitoring || !client.connected) return;
+    loopTimer = window.setTimeout(tick, delay);
+  }
+
+  async function tick() {
+    if (!monitoring || !client.connected) return;
+    if (document.visibilityState !== "visible") {
+      updateHiddenWarn();
+      scheduleLoop(POLL_MS);
+      return;
+    }
+    const started = performance.now();
+    try {
+      const listed = await client.request("InputParameterListRequest", {});
+      const values = readListedParams(listed);
+      if (values) {
+        renderParams(values);
+        const raw = calculateRawScore(values, settings.minLimits, settings.maxLimits);
+        score = applyEma(score, raw);
+        paintScore(score);
+        const injected = await client.request("InjectParameterDataRequest", {
+          faceFound: true,
+          mode: "set",
+          parameterValues: [{ id: PARAM_NAME, value: score, weight: 1 }],
+        });
+        if (injected.messageType === "APIError") {
+          setStatus(apiErrorText(injected) || "スコアを書き込めません");
+        }
+      }
+    } catch (error) {
+      if (!client.closedByUser) setStatus(error.message || "監視に失敗しました");
+    }
+    scheduleLoop(Math.max(0, POLL_MS - (performance.now() - started)));
+  }
+
+  document.getElementById("connect").addEventListener("click", () => {
+    client.close();
+    client.closedByUser = false;
+    openSession();
+  });
+
+  document.getElementById("disconnect").addEventListener("click", () => {
+    monitoring = false;
+    window.clearTimeout(loopTimer);
+    window.clearTimeout(reconnectTimer);
+    session += 1;
+    client.close();
+    setStatus("切断しました");
+  });
+
+  document.getElementById("start").addEventListener("click", () => {
+    if (!client.connected) {
+      setStatus("先に接続してください");
+      return;
+    }
+    monitoring = true;
+    score = 100;
+    paintScore(score);
+    setStatus("監視中");
+    scheduleLoop(0);
+  });
+
+  document.getElementById("stop").addEventListener("click", () => {
+    monitoring = false;
+    window.clearTimeout(loopTimer);
+    score = 100;
+    paintScore(score);
+    setStatus(client.connected ? "接続しました" : "未接続");
+  });
+
+  document.getElementById("calibrate").addEventListener("click", async () => {
+    if (!client.connected || client.pumping || client.queue.length) {
+      setStatus("監視を止めてから基準を取ってください");
+      return;
+    }
+    try {
+      const listed = await client.request("InputParameterListRequest", {});
+      const values = readListedParams(listed);
+      if (!values) throw new Error("顔パラメータを読めません");
+      for (const name of PARAMS) {
+        const base = values[name] == null ? 0 : roundDigits(Number(values[name]), 4);
+        settings.baseline[name] = base;
+        settings.minLimits[name] = roundDigits(base + settings.minOffsets[name], 4);
+        settings.maxLimits[name] = roundDigits(base + settings.maxOffsets[name], 4);
+      }
+      save();
+      renderParams(values);
+      setStatus("今の姿勢を基準にしました");
+    } catch (error) {
+      setStatus(error.message || "基準を取れません");
+    }
+  });
+
+  document.getElementById("copy-url").addEventListener("click", async () => {
+    readForm();
+    const url = overlayUrl.value;
+    try {
+      await navigator.clipboard.writeText(url);
+      setStatus("オーバーレイ URL をコピーしました");
+    } catch (_) {
+      overlayUrl.focus();
+      overlayUrl.select();
+      setStatus("URL を選択しました。コピーしてください");
+    }
+  });
+
+  for (const id of ["port", "alert", "threshold", "duration", "cooldown", "volume"]) {
+    document.getElementById(id).addEventListener("change", readForm);
+  }
+
+  document.addEventListener("visibilitychange", updateHiddenWarn);
+  updateHiddenWarn();
+}
+
+function startOverlay() {
+  const query = new URLSearchParams(location.search);
+  const alertOn = query.get("alert") === "1";
+  const threshold = clamp(query.get("threshold"), 0, 100, 70);
+  const duration = clamp(query.get("duration"), 0, 3600, 3);
+  const cooldown = clamp(query.get("cooldown"), 0, 3600, 10);
+  const volume = clamp(query.get("volume"), 0, 1, 0.5);
+  const port = clamp(query.get("port"), 1, 65535, 8001);
+
+  const storeKey = "vtsGoodPosture.overlay";
+  const settings = loadStore(storeKey);
+  settings.port = port;
+  const save = () => saveStore(storeKey, settings);
+  const client = new VtsClient(OVERLAY_PLUGIN);
+  const scoreEl = document.getElementById("ov-score");
+  const labelEl = document.getElementById("ov-label");
+
+  let audioCtx = null;
+  let badSince = null;
+  let lastSound = 0;
+  let reconnectTimer = 0;
+
+  function showMissing() {
+    scoreEl.textContent = "未接続";
+    scoreEl.style.color = "white";
+    labelEl.textContent = "";
+  }
+
+  function showScore(score) {
+    const look = scoreAppearance(score);
+    scoreEl.textContent = String(score);
+    scoreEl.style.color = look.color;
+    labelEl.textContent = look.label;
+    labelEl.style.color = look.color;
+    maybeAlert(score);
+  }
+
+  function maybeAlert(score) {
+    if (!alertOn) {
+      badSince = null;
+      return;
+    }
+    const now = performance.now() / 1000;
+    if (score <= threshold) {
+      if (badSince == null) badSince = now;
+      if (now - badSince >= duration && now - lastSound >= cooldown) {
+        playBeep();
+        lastSound = now;
+      }
+    } else {
+      badSince = null;
+    }
+  }
+
+  function playBeep() {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    if (!audioCtx) audioCtx = new AudioContext();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = 880;
+    gain.gain.value = Math.max(volume, 0.001);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    const end = audioCtx.currentTime + 0.35;
+    gain.gain.exponentialRampToValueAtTime(0.001, end);
+    osc.start();
+    osc.stop(end);
+  }
+
+  function scheduleReconnect() {
+    window.clearTimeout(reconnectTimer);
+    reconnectTimer = window.setTimeout(openSession, 2000);
+  }
+
+  async function openSession() {
+    try {
+      await client.connect(port);
+      await client.authenticate(settings, save);
+      poll();
+    } catch (_) {
+      showMissing();
+      scheduleReconnect();
+    }
+  }
+
+  client.onClose = () => {
+    showMissing();
+    scheduleReconnect();
+  };
+
+  async function poll() {
+    if (!client.connected) return;
+    try {
+      const message = await client.request("ParameterValueRequest", { name: PARAM_NAME });
+      if (message.messageType === "APIError") {
+        showMissing();
+      } else if (message.data && Number.isFinite(Number(message.data.value))) {
+        showScore(roundDigits(Number(message.data.value), 2));
+      } else {
+        showMissing();
+      }
+    } catch (_) {
+      showMissing();
+      return;
+    }
+    window.setTimeout(poll, POLL_MS);
+  }
+
+  showMissing();
+  openSession();
+}
+
+boot();

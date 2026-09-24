@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>姿勢チェッカー</title>
+  <link rel="stylesheet" href="style.css">
+  <script>
+    if (new URLSearchParams(location.search).get("overlay") === "1") {
+      document.documentElement.classList.add("overlay");
+    }
+  </script>
+</head>
+<body>
+  <main id="control">
+    <h1>姿勢チェッカー</h1>
+    <p class="lead">このページを Chrome で開いたままにしてください。VTube Studio への接続と設定はここだけです。</p>
+    <p id="status" class="status">未接続</p>
+    <p id="hidden-warn" class="warn" hidden>タブが隠れているためスコアは 100 に戻る</p>
+
+    <section>
+      <h2>接続</h2>
+      <label>VTube Studio のポート
+        <input id="port" type="number" min="1" max="65535" value="8001">
+      </label>
+      <div class="row">
+        <button id="connect" type="button">接続</button>
+        <button id="disconnect" type="button">切断</button>
+      </div>
+      <p class="hint">接続先は ws://127.0.0.1 です。初回は VTube Studio 側でプラグインを許可してください。Python 版の姿勢モニターとは同時に起動しないでください。</p>
+    </section>
+
+    <section>
+      <h2>監視</h2>
+      <p class="score-line">スコア <strong id="live-score">100</strong> <span id="live-status">良好</span></p>
+      <div class="row">
+        <button id="start" type="button">監視開始</button>
+        <button id="stop" type="button">監視停止</button>
+        <button id="calibrate" type="button">今の姿勢を基準にする</button>
+      </div>
+      <ul id="params" class="params"></ul>
+    </section>
+
+    <section>
+      <h2>警告</h2>
+      <label class="check"><input id="alert" type="checkbox"> 警告音を鳴らす</label>
+      <label>閾値
+        <input id="threshold" type="number" min="0" max="100" step="1" value="70">
+      </label>
+      <label>継続秒
+        <input id="duration" type="number" min="0" step="0.1" value="3">
+      </label>
+      <label>クールダウン秒
+        <input id="cooldown" type="number" min="0" step="1" value="10">
+      </label>
+      <label>音量
+        <input id="volume" type="number" min="0" max="1" step="0.1" value="0.5">
+      </label>
+    </section>
+
+    <section>
+      <h2>OBS ブラウザソース</h2>
+      <p class="hint">スコアと警告音だけの透過ページです。設定を変えたら、この URL をブラウザソースに差し替えてください。</p>
+      <input id="overlay-url" type="text" readonly>
+      <div class="row">
+        <button id="copy-url" type="button">今の設定でオーバーレイ URL をコピー</button>
+      </div>
+    </section>
+  </main>
+
+  <main id="overlay">
+    <p id="ov-score" class="ov-score">未接続</p>
+    <p id="ov-label" class="ov-label"></p>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
