@@ -46,6 +46,7 @@ function defaultSettings() {
     duration: 3,
     cooldown: 10,
     volume: 0.5,
+    sound: "beep",
     theme: "dark",
   };
 }
@@ -120,6 +121,7 @@ function loadStore(key) {
     settings.duration = clamp(saved.duration, 0, 3600, settings.duration);
     settings.cooldown = clamp(saved.cooldown, 0, 3600, settings.cooldown);
     settings.volume = clamp(saved.volume, 0, 1, settings.volume);
+    if (["beep", "double", "triple", "siren", "buzz"].includes(saved.sound)) settings.sound = saved.sound;
     settings.theme = saved.theme === "light" ? "light" : "dark";
   } catch (_) {
     /* 壊れた保存値は初期値のまま使う */
@@ -360,6 +362,7 @@ function startControl() {
   document.getElementById("duration").value = String(settings.duration);
   document.getElementById("cooldown").value = String(settings.cooldown);
   document.getElementById("volume").value = String(settings.volume);
+  document.getElementById("sound").value = settings.sound;
   buildParamCards();
   paintParamCards({});
   refreshOverlayUrl();
@@ -384,6 +387,7 @@ function startControl() {
     settings.duration = clamp(document.getElementById("duration").value, 0, 3600, 3);
     settings.cooldown = clamp(document.getElementById("cooldown").value, 0, 3600, 10);
     settings.volume = clamp(document.getElementById("volume").value, 0, 1, 0.5);
+    settings.sound = document.getElementById("sound").value;
     save();
     refreshOverlayUrl();
   }
@@ -396,6 +400,7 @@ function startControl() {
       duration: String(settings.duration),
       cooldown: String(settings.cooldown),
       volume: String(settings.volume),
+      sound: settings.sound,
       port: String(settings.port),
       host: settings.host,
       theme: settings.theme,
@@ -441,7 +446,10 @@ function startControl() {
           <input class="axis view-min" data-name="${name}" type="number" step="0.1" aria-label="表示最小">
           <div class="track" data-name="${name}">
             <div class="track-line"></div>
-            <div class="track-range" id="range-${name}"></div>
+            <div class="track-range" id="range-${name}">
+            <span class="range-num range-min" id="min-label-${name}"></span>
+            <span class="range-num range-max" id="max-label-${name}"></span>
+          </div>
             <div class="base-dot" id="base-${name}"></div>
             <div class="live-dot" id="dot-${name}"></div>
             <div class="handle" data-name="${name}" data-side="min"></div>
@@ -450,9 +458,7 @@ function startControl() {
           <input class="axis view-max" data-name="${name}" type="number" step="0.1" aria-label="表示最大">
         </div>
         <div class="param-meta">
-          <span id="min-label-${name}"></span>
           <span id="base-label-${name}"></span>
-          <span id="max-label-${name}"></span>
         </div>
         <label>重み <input class="weight" data-name="${name}" type="range" min="0.1" max="5" step="0.1"></label>
       `;
@@ -517,9 +523,9 @@ function startControl() {
       const handles = paramCards.querySelectorAll(`.handle[data-name="${name}"]`);
       handles[0].style.left = `${minPct}%`;
       handles[1].style.left = `${maxPct}%`;
-      document.getElementById(`min-label-${name}`).textContent = `最小 ${settings.minLimits[name].toFixed(2)}`;
+      document.getElementById(`min-label-${name}`).textContent = settings.minLimits[name].toFixed(2);
       document.getElementById(`base-label-${name}`).textContent = `基準 ${settings.baseline[name].toFixed(2)}`;
-      document.getElementById(`max-label-${name}`).textContent = `最大 ${settings.maxLimits[name].toFixed(2)}`;
+      document.getElementById(`max-label-${name}`).textContent = settings.maxLimits[name].toFixed(2);
       const viewMin = paramCards.querySelector(`.view-min[data-name="${name}"]`);
       const viewMax = paramCards.querySelector(`.view-max[data-name="${name}"]`);
       const weight = paramCards.querySelector(`.weight[data-name="${name}"]`);
@@ -730,7 +736,7 @@ function startControl() {
     alphaVal.textContent = clamp(alphaInput.value, 0.01, 1, 0.1).toFixed(2);
   });
 
-  for (const id of ["host", "port", "auto-start", "polling", "alpha", "alert", "threshold", "duration", "cooldown", "volume"]) {
+  for (const id of ["host", "port", "auto-start", "polling", "alpha", "alert", "sound", "threshold", "duration", "cooldown", "volume"]) {
     document.getElementById(id).addEventListener("change", readForm);
   }
 
@@ -745,6 +751,7 @@ function startOverlay() {
   const duration = clamp(query.get("duration"), 0, 3600, 3);
   const cooldown = clamp(query.get("cooldown"), 0, 3600, 10);
   const volume = clamp(query.get("volume"), 0, 1, 0.5);
+  const sound = ["beep", "double", "triple", "siren", "buzz"].includes(query.get("sound")) ? query.get("sound") : "beep";
   const port = clamp(query.get("port"), 1, 65535, 8001);
   const host = (query.get("host") || "127.0.0.1").trim();
 
@@ -791,7 +798,7 @@ function startOverlay() {
     if (score <= threshold) {
       if (badSince == null) badSince = now;
       if (now - badSince >= duration && now - lastSound >= cooldown) {
-        playBeep();
+        playAlert(sound, volume);
         lastSound = now;
       }
     } else {
@@ -799,22 +806,57 @@ function startOverlay() {
     }
   }
 
-  function playBeep() {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContext) return;
-    if (!audioCtx) audioCtx = new AudioContext();
+  function playAlert(kind, level) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    if (!audioCtx) audioCtx = new AudioContextClass();
     if (audioCtx.state === "suspended") audioCtx.resume();
+    const gain = Math.max(level, 0.001);
+    if (kind === "double") {
+      tone(880, 0, 0.12, gain, "square");
+      tone(660, 0.16, 0.28, gain, "square");
+    } else if (kind === "triple") {
+      tone(988, 0, 0.08, gain, "square");
+      tone(988, 0.12, 0.2, gain, "square");
+      tone(988, 0.24, 0.36, gain, "square");
+    } else if (kind === "siren") {
+      sweep(520, 1400, 0.45, gain);
+    } else if (kind === "buzz") {
+      tone(180, 0, 0.18, gain, "sawtooth");
+      tone(140, 0.22, 0.46, gain, "sawtooth");
+    } else {
+      tone(880, 0, 0.28, gain, "square");
+    }
+  }
+
+  function tone(frequency, start, stop, gain, type) {
     const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = "sine";
-    osc.frequency.value = 880;
-    gain.gain.value = Math.max(volume, 0.001);
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    const end = audioCtx.currentTime + 0.35;
-    gain.gain.exponentialRampToValueAtTime(0.001, end);
-    osc.start();
+    const amp = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = frequency;
+    amp.gain.value = gain;
+    osc.connect(amp);
+    amp.connect(audioCtx.destination);
+    const begin = audioCtx.currentTime + start;
+    const end = audioCtx.currentTime + stop;
+    amp.gain.setValueAtTime(gain, begin);
+    amp.gain.exponentialRampToValueAtTime(0.001, end);
+    osc.start(begin);
     osc.stop(end);
+  }
+
+  function sweep(from, to, seconds, gain) {
+    const osc = audioCtx.createOscillator();
+    const amp = audioCtx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(from, audioCtx.currentTime);
+    osc.frequency.linearRampToValueAtTime(to, audioCtx.currentTime + seconds);
+    amp.gain.setValueAtTime(gain, audioCtx.currentTime);
+    amp.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + seconds);
+    osc.connect(amp);
+    amp.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + seconds);
   }
 
   function scheduleReconnect() {

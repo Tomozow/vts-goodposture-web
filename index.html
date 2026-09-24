@@ -68,6 +68,15 @@
       <section>
         <h2>警告</h2>
         <label class="check"><input id="alert" type="checkbox"> 警告音を鳴らす</label>
+        <label>音
+          <select id="sound">
+            <option value="beep">単音</option>
+            <option value="double">二音</option>
+            <option value="triple">三音</option>
+            <option value="siren">サイレン</option>
+            <option value="buzz">ブザー</option>
+          </select>
+        </label>
         <label>閾値
           <input id="threshold" type="number" min="0" max="100" step="1" value="70">
         </label>
@@ -100,7 +109,7 @@
           <button id="reset-offsets" type="button">許容値を初期値に戻す</button>
         </div>
       </div>
-      <p class="hint">スライダーの幅は、保存すると次の基準登録に使う。</p>
+      <p class="hint">VTube Studio の顔パラメータで判定する。重みは、許容範囲の外に出たときスコアへどれだけ響くか。</p>
       <div id="param-cards"></div>
     </section>
   </main>
