@@ -363,7 +363,7 @@ function startControl() {
   buildParamCards();
   paintParamCards({});
   refreshOverlayUrl();
-  paintScore(100);
+  clearScore();
 
   function setStatus(text) {
     status.textContent = text;
@@ -409,6 +409,12 @@ function startControl() {
     themeButton.textContent = settings.theme === "light" ? "ダーク" : "ライト";
   }
 
+  function clearScore() {
+    liveScore.textContent = "";
+    liveScore.style.color = "";
+    liveStatus.textContent = "";
+  }
+
   function paintScore(value) {
     const look = scoreAppearance(value);
     liveScore.textContent = String(value);
@@ -431,21 +437,23 @@ function startControl() {
       card.className = "param-card";
       card.innerHTML = `
         <div class="param-head"><strong>${name}</strong><span id="live-${name}">現在 —</span></div>
-        <div class="track" data-name="${name}">
-          <div class="track-line"></div>
-          <div class="track-range" id="range-${name}"></div>
-          <div class="base-dot" id="base-${name}"></div>
-          <div class="live-dot" id="dot-${name}"></div>
-          <div class="handle" data-name="${name}" data-side="min"></div>
-          <div class="handle" data-name="${name}" data-side="max"></div>
+        <div class="track-wrap">
+          <input class="axis view-min" data-name="${name}" type="number" step="0.1" aria-label="表示最小">
+          <div class="track" data-name="${name}">
+            <div class="track-line"></div>
+            <div class="track-range" id="range-${name}"></div>
+            <div class="base-dot" id="base-${name}"></div>
+            <div class="live-dot" id="dot-${name}"></div>
+            <div class="handle" data-name="${name}" data-side="min"></div>
+            <div class="handle" data-name="${name}" data-side="max"></div>
+          </div>
+          <input class="axis view-max" data-name="${name}" type="number" step="0.1" aria-label="表示最大">
         </div>
         <div class="param-meta">
           <span id="min-label-${name}"></span>
           <span id="base-label-${name}"></span>
           <span id="max-label-${name}"></span>
         </div>
-        <label>表示最小 <input class="view-min" data-name="${name}" type="number" step="0.1"></label>
-        <label>表示最大 <input class="view-max" data-name="${name}" type="number" step="0.1"></label>
         <label>重み <input class="weight" data-name="${name}" type="range" min="0.1" max="5" step="0.1"></label>
       `;
       paramCards.append(card);
@@ -455,7 +463,7 @@ function startControl() {
         event.preventDefault();
         const name = handle.dataset.name;
         const side = handle.dataset.side;
-        const track = handle.parentElement;
+          const track = handle.closest(".track");
         const move = (point) => {
           const rect = track.getBoundingClientRect();
           const ratio = Math.max(0, Math.min(1, (point.clientX - rect.left) / rect.width));
@@ -561,6 +569,7 @@ function startControl() {
     } catch (error) {
       if (current !== session) return;
       setStatus(error.message || "接続に失敗しました");
+      clearScore();
       scheduleReconnect();
     }
   }
@@ -576,6 +585,7 @@ function startControl() {
   client.onClose = (code, reason) => {
     if (session === 0) return;
     setStatus(reason);
+    clearScore();
     scheduleReconnect();
   };
 
@@ -628,6 +638,7 @@ function startControl() {
     window.clearTimeout(reconnectTimer);
     session += 1;
     client.close();
+    clearScore();
     setStatus("切断しました");
   });
 
@@ -752,10 +763,11 @@ function startOverlay() {
   let reconnectTimer = 0;
 
   function showMissing() {
-    scoreEl.textContent = "未接続";
+    scoreEl.textContent = "";
     scoreEl.style.color = "";
-    labelEl.textContent = "";
+    labelEl.textContent = "未接続";
     gaugeEl.style.width = "0";
+    gaugeEl.parentElement.hidden = true;
   }
 
   function showScore(score) {
@@ -766,6 +778,7 @@ function startOverlay() {
     labelEl.style.color = "";
     gaugeEl.style.width = `${Math.max(0, Math.min(100, score))}%`;
     gaugeEl.style.backgroundColor = look.color;
+    gaugeEl.parentElement.hidden = false;
     maybeAlert(score);
   }
 

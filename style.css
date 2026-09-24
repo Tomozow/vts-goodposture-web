@@ -205,10 +205,30 @@ input[type="range"] {
   color: var(--muted);
 }
 
+.track-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.35rem 0;
+}
+
+.axis {
+  width: 4.5rem;
+  padding: 0.2rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
 .track {
   position: relative;
+  flex: 1;
   height: 28px;
-  margin: 0.55rem 0;
+  min-width: 0;
 }
 
 .track-line,
