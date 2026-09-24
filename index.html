@@ -1,100 +1,113 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>姿勢チェッカー</title>
   <link rel="stylesheet" href="style.css">
   <script>
-    if (new URLSearchParams(location.search).get("overlay") === "1") {
-      document.documentElement.classList.add("overlay");
-    }
+    (function () {
+      const query = new URLSearchParams(location.search);
+      const root = document.documentElement;
+      if (query.get("overlay") === "1") {
+        root.classList.add("overlay");
+        root.dataset.theme = query.get("theme") === "light" ? "light" : "dark";
+        return;
+      }
+      try {
+        const saved = JSON.parse(localStorage.getItem("vtsGoodPosture.control") || "{}");
+        if (saved.theme === "light") root.dataset.theme = "light";
+      } catch (_) {}
+    })();
   </script>
 </head>
 <body>
   <main id="control">
-    <h1>姿勢チェッカー</h1>
-    <p class="lead">このページを Chrome で開いたままにしてください。VTube Studio への接続と設定はここだけです。</p>
-    <p id="status" class="status">未接続</p>
-    <p id="hidden-warn" class="warn" hidden>タブが隠れているためスコアは 100 に戻る</p>
-
-    <section>
-      <h2>接続</h2>
-      <label>ホスト
-        <input id="host" type="text" value="127.0.0.1">
-      </label>
-      <label>VTube Studio のポート
-        <input id="port" type="number" min="1" max="65535" value="8001">
-      </label>
-      <label class="check"><input id="auto-start" type="checkbox"> 接続したら監視を始める</label>
-      <div class="row">
-        <button id="connect" type="button">接続</button>
-        <button id="disconnect" type="button">切断</button>
+    <header class="mast">
+      <div>
+        <p class="kicker">姿勢チェッカー</p>
+        <p class="score-line"><strong id="live-score">100</strong> <span id="live-status">良好</span></p>
+        <p id="status" class="status">未接続</p>
+        <p id="hidden-warn" class="warn" hidden>タブが隠れているためスコアは 100 に戻る</p>
       </div>
-      <p class="hint">接続先は入力したホストとポートです。既定は 127.0.0.1 です。初回は VTube Studio 側でプラグインを許可してください。Python 版の姿勢モニターとは同時に起動しないでください。</p>
-    </section>
-
-    <section>
-      <h2>監視</h2>
-      <p class="score-line">スコア <strong id="live-score">100</strong> <span id="live-status">良好</span></p>
-      <div class="row">
-        <button id="start" type="button">監視開始</button>
+      <div class="mast-actions">
+        <button id="connect" class="primary" type="button">接続</button>
+        <button id="disconnect" type="button">切断</button>
+        <button id="start" class="primary" type="button">監視開始</button>
         <button id="stop" type="button">監視停止</button>
         <button id="calibrate" type="button">今の姿勢を基準にする</button>
+        <button id="theme" type="button">ライト</button>
       </div>
-      <p class="hint">許容値は、基準姿勢を登録するときの幅です。スライダーで変えたあと「現在の許容値を保存」を押すと、次の登録でもその幅になります。</p>
-      <div class="row">
-        <button id="save-offsets" type="button">現在の許容値を保存</button>
-        <button id="reset-offsets" type="button">許容値を初期値に戻す</button>
+    </header>
+
+    <div class="grid">
+      <section>
+        <h2>接続</h2>
+        <p class="hint">既定は 127.0.0.1。Python 版とは同時に動かさない。</p>
+        <label>ホスト
+          <input id="host" type="text" value="127.0.0.1">
+        </label>
+        <label>ポート
+          <input id="port" type="number" min="1" max="65535" value="8001">
+        </label>
+        <label class="check"><input id="auto-start" type="checkbox"> 接続したら監視を始める</label>
+      </section>
+
+      <section>
+        <h2>計算</h2>
+        <label>間隔 (ms)
+          <input id="polling" type="number" min="50" max="900" step="10" value="200">
+        </label>
+        <label>平滑化 α
+          <input id="alpha" type="range" min="0.01" max="1" step="0.01" value="0.1">
+        </label>
+        <p id="alpha-val" class="hint">0.10</p>
+      </section>
+
+      <section>
+        <h2>警告</h2>
+        <label class="check"><input id="alert" type="checkbox"> 警告音を鳴らす</label>
+        <label>閾値
+          <input id="threshold" type="number" min="0" max="100" step="1" value="70">
+        </label>
+        <label>継続秒
+          <input id="duration" type="number" min="0" step="0.1" value="3">
+        </label>
+        <label>クールダウン秒
+          <input id="cooldown" type="number" min="0" step="1" value="10">
+        </label>
+        <label>音量
+          <input id="volume" type="number" min="0" max="1" step="0.1" value="0.5">
+        </label>
+      </section>
+
+      <section>
+        <h2>OBS</h2>
+        <p class="hint">設定を変えたら、この URL をブラウザソースに差し替える。</p>
+        <input id="overlay-url" type="text" readonly>
+        <div class="row">
+          <button id="copy-url" type="button">オーバーレイ URL をコピー</button>
+        </div>
+      </section>
+    </div>
+
+    <section class="params-block">
+      <div class="section-head">
+        <h2>パラメータ</h2>
+        <div class="row">
+          <button id="save-offsets" type="button">現在の許容値を保存</button>
+          <button id="reset-offsets" type="button">許容値を初期値に戻す</button>
+        </div>
       </div>
-    </section>
-
-    <section>
-      <h2>計算</h2>
-      <label>間隔 (ms)
-        <input id="polling" type="number" min="50" max="900" step="10" value="200">
-      </label>
-      <label>平滑化 α
-        <input id="alpha" type="range" min="0.01" max="1" step="0.01" value="0.1">
-      </label>
-      <p id="alpha-val" class="hint">0.10</p>
-    </section>
-
-    <section>
-      <h2>パラメータ</h2>
+      <p class="hint">スライダーの幅は、保存すると次の基準登録に使う。</p>
       <div id="param-cards"></div>
-    </section>
-
-    <section>
-      <h2>警告</h2>
-      <label class="check"><input id="alert" type="checkbox"> 警告音を鳴らす</label>
-      <label>閾値
-        <input id="threshold" type="number" min="0" max="100" step="1" value="70">
-      </label>
-      <label>継続秒
-        <input id="duration" type="number" min="0" step="0.1" value="3">
-      </label>
-      <label>クールダウン秒
-        <input id="cooldown" type="number" min="0" step="1" value="10">
-      </label>
-      <label>音量
-        <input id="volume" type="number" min="0" max="1" step="0.1" value="0.5">
-      </label>
-    </section>
-
-    <section>
-      <h2>OBS ブラウザソース</h2>
-      <p class="hint">スコアと警告音だけの透過ページです。設定を変えたら、この URL をブラウザソースに差し替えてください。</p>
-      <input id="overlay-url" type="text" readonly>
-      <div class="row">
-        <button id="copy-url" type="button">今の設定でオーバーレイ URL をコピー</button>
-      </div>
     </section>
   </main>
 
   <main id="overlay">
     <p id="ov-score" class="ov-score">未接続</p>
     <p id="ov-label" class="ov-label"></p>
+    <div class="ov-gauge" aria-hidden="true"><div id="ov-gauge-fill"></div></div>
   </main>
 
   <script src="app.js"></script>

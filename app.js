@@ -46,6 +46,7 @@ function defaultSettings() {
     duration: 3,
     cooldown: 10,
     volume: 0.5,
+    theme: "dark",
   };
 }
 
@@ -119,6 +120,7 @@ function loadStore(key) {
     settings.duration = clamp(saved.duration, 0, 3600, settings.duration);
     settings.cooldown = clamp(saved.cooldown, 0, 3600, settings.cooldown);
     settings.volume = clamp(saved.volume, 0, 1, settings.volume);
+    settings.theme = saved.theme === "light" ? "light" : "dark";
   } catch (_) {
     /* 壊れた保存値は初期値のまま使う */
   }
@@ -338,6 +340,7 @@ function startControl() {
   const overlayUrl = document.getElementById("overlay-url");
   const alphaInput = document.getElementById("alpha");
   const alphaVal = document.getElementById("alpha-val");
+  const themeButton = document.getElementById("theme");
 
   let monitoring = false;
   let score = 100;
@@ -352,6 +355,7 @@ function startControl() {
   alphaInput.value = String(settings.alpha);
   alphaVal.textContent = settings.alpha.toFixed(2);
   document.getElementById("alert").checked = settings.alert;
+  applyTheme();
   document.getElementById("threshold").value = String(settings.threshold);
   document.getElementById("duration").value = String(settings.duration);
   document.getElementById("cooldown").value = String(settings.cooldown);
@@ -394,9 +398,15 @@ function startControl() {
       volume: String(settings.volume),
       port: String(settings.port),
       host: settings.host,
+      theme: settings.theme,
     });
     const path = location.pathname.endsWith("/") ? `${location.pathname}index.html` : location.pathname;
     overlayUrl.value = `${location.origin}${path}?${query}`;
+  }
+
+  function applyTheme() {
+    document.documentElement.dataset.theme = settings.theme;
+    themeButton.textContent = settings.theme === "light" ? "ダーク" : "ライト";
   }
 
   function paintScore(value) {
@@ -404,7 +414,7 @@ function startControl() {
     liveScore.textContent = String(value);
     liveScore.style.color = look.color;
     liveStatus.textContent = look.label;
-    liveStatus.style.color = look.color;
+    liveStatus.style.color = "";
   }
 
   function percent(name, value) {
@@ -698,6 +708,13 @@ function startControl() {
     setStatus("許容値を初期値に戻しました");
   });
 
+  themeButton.addEventListener("click", () => {
+    settings.theme = settings.theme === "light" ? "dark" : "light";
+    applyTheme();
+    save();
+    refreshOverlayUrl();
+  });
+
   alphaInput.addEventListener("input", () => {
     alphaVal.textContent = clamp(alphaInput.value, 0.01, 1, 0.1).toFixed(2);
   });
@@ -727,6 +744,7 @@ function startOverlay() {
   const client = new VtsClient(OVERLAY_PLUGIN);
   const scoreEl = document.getElementById("ov-score");
   const labelEl = document.getElementById("ov-label");
+  const gaugeEl = document.getElementById("ov-gauge-fill");
 
   let audioCtx = null;
   let badSince = null;
@@ -735,8 +753,9 @@ function startOverlay() {
 
   function showMissing() {
     scoreEl.textContent = "未接続";
-    scoreEl.style.color = "white";
+    scoreEl.style.color = "";
     labelEl.textContent = "";
+    gaugeEl.style.width = "0";
   }
 
   function showScore(score) {
@@ -744,7 +763,9 @@ function startOverlay() {
     scoreEl.textContent = String(score);
     scoreEl.style.color = look.color;
     labelEl.textContent = look.label;
-    labelEl.style.color = look.color;
+    labelEl.style.color = "";
+    gaugeEl.style.width = `${Math.max(0, Math.min(100, score))}%`;
+    gaugeEl.style.backgroundColor = look.color;
     maybeAlert(score);
   }
 
