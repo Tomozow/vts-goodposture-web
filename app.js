@@ -319,6 +319,58 @@ function readListedParams(message) {
   return values;
 }
 
+let alertAudio = null;
+
+function playAlert(kind, level) {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return;
+  if (!alertAudio) alertAudio = new AudioContextClass();
+  if (alertAudio.state === "suspended") alertAudio.resume();
+  const gain = Math.max(level, 0.001);
+  if (kind === "double") {
+    tone(880, 0, 0.12, gain, "square");
+    tone(660, 0.16, 0.28, gain, "square");
+  } else if (kind === "triple") {
+    tone(988, 0, 0.08, gain, "square");
+    tone(988, 0.12, 0.2, gain, "square");
+    tone(988, 0.24, 0.36, gain, "square");
+  } else if (kind === "siren") {
+    sweep(520, 1400, 0.45, gain);
+  } else if (kind === "buzz") {
+    tone(180, 0, 0.18, gain, "sawtooth");
+    tone(140, 0.22, 0.46, gain, "sawtooth");
+  } else {
+    tone(880, 0, 0.28, gain, "square");
+  }
+}
+
+function tone(frequency, start, stop, gain, type) {
+  const osc = alertAudio.createOscillator();
+  const amp = alertAudio.createGain();
+  osc.type = type;
+  osc.frequency.value = frequency;
+  amp.gain.setValueAtTime(gain, alertAudio.currentTime + start);
+  amp.gain.exponentialRampToValueAtTime(0.001, alertAudio.currentTime + stop);
+  osc.connect(amp);
+  amp.connect(alertAudio.destination);
+  osc.start(alertAudio.currentTime + start);
+  osc.stop(alertAudio.currentTime + stop);
+}
+
+function sweep(from, to, seconds, gain) {
+  const osc = alertAudio.createOscillator();
+  const amp = alertAudio.createGain();
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(from, alertAudio.currentTime);
+  osc.frequency.linearRampToValueAtTime(to, alertAudio.currentTime + seconds);
+  amp.gain.setValueAtTime(gain, alertAudio.currentTime);
+  amp.gain.exponentialRampToValueAtTime(0.001, alertAudio.currentTime + seconds);
+  osc.connect(amp);
+  amp.connect(alertAudio.destination);
+  osc.start();
+  osc.stop(alertAudio.currentTime + seconds);
+}
+
 function boot() {
   if (document.documentElement.classList.contains("overlay")) {
     startOverlay();
@@ -450,15 +502,12 @@ function startControl() {
             <span class="range-num range-min" id="min-label-${name}"></span>
             <span class="range-num range-max" id="max-label-${name}"></span>
           </div>
-            <div class="base-dot" id="base-${name}"></div>
+            <div class="base-dot" id="base-${name}"><span id="base-label-${name}"></span></div>
             <div class="live-dot" id="dot-${name}"></div>
             <div class="handle" data-name="${name}" data-side="min"></div>
             <div class="handle" data-name="${name}" data-side="max"></div>
           </div>
           <input class="axis view-max" data-name="${name}" type="number" step="0.1" aria-label="表示最大">
-        </div>
-        <div class="param-meta">
-          <span id="base-label-${name}"></span>
         </div>
         <label>重み <input class="weight" data-name="${name}" type="range" min="0.1" max="5" step="0.1"></label>
       `;
@@ -524,7 +573,7 @@ function startControl() {
       handles[0].style.left = `${minPct}%`;
       handles[1].style.left = `${maxPct}%`;
       document.getElementById(`min-label-${name}`).textContent = settings.minLimits[name].toFixed(2);
-      document.getElementById(`base-label-${name}`).textContent = `基準 ${settings.baseline[name].toFixed(2)}`;
+      document.getElementById(`base-label-${name}`).textContent = settings.baseline[name].toFixed(2);
       document.getElementById(`max-label-${name}`).textContent = settings.maxLimits[name].toFixed(2);
       const viewMin = paramCards.querySelector(`.view-min[data-name="${name}"]`);
       const viewMax = paramCards.querySelector(`.view-max[data-name="${name}"]`);
@@ -691,6 +740,11 @@ function startControl() {
     }
   });
 
+  document.getElementById("test-sound").addEventListener("click", () => {
+    readForm();
+    playAlert(settings.sound, settings.volume);
+  });
+
   document.getElementById("copy-url").addEventListener("click", async () => {
     readForm();
     const url = overlayUrl.value;
@@ -764,7 +818,6 @@ function startOverlay() {
   const labelEl = document.getElementById("ov-label");
   const gaugeEl = document.getElementById("ov-gauge-fill");
 
-  let audioCtx = null;
   let badSince = null;
   let lastSound = 0;
   let reconnectTimer = 0;
@@ -804,59 +857,6 @@ function startOverlay() {
     } else {
       badSince = null;
     }
-  }
-
-  function playAlert(kind, level) {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) return;
-    if (!audioCtx) audioCtx = new AudioContextClass();
-    if (audioCtx.state === "suspended") audioCtx.resume();
-    const gain = Math.max(level, 0.001);
-    if (kind === "double") {
-      tone(880, 0, 0.12, gain, "square");
-      tone(660, 0.16, 0.28, gain, "square");
-    } else if (kind === "triple") {
-      tone(988, 0, 0.08, gain, "square");
-      tone(988, 0.12, 0.2, gain, "square");
-      tone(988, 0.24, 0.36, gain, "square");
-    } else if (kind === "siren") {
-      sweep(520, 1400, 0.45, gain);
-    } else if (kind === "buzz") {
-      tone(180, 0, 0.18, gain, "sawtooth");
-      tone(140, 0.22, 0.46, gain, "sawtooth");
-    } else {
-      tone(880, 0, 0.28, gain, "square");
-    }
-  }
-
-  function tone(frequency, start, stop, gain, type) {
-    const osc = audioCtx.createOscillator();
-    const amp = audioCtx.createGain();
-    osc.type = type;
-    osc.frequency.value = frequency;
-    amp.gain.value = gain;
-    osc.connect(amp);
-    amp.connect(audioCtx.destination);
-    const begin = audioCtx.currentTime + start;
-    const end = audioCtx.currentTime + stop;
-    amp.gain.setValueAtTime(gain, begin);
-    amp.gain.exponentialRampToValueAtTime(0.001, end);
-    osc.start(begin);
-    osc.stop(end);
-  }
-
-  function sweep(from, to, seconds, gain) {
-    const osc = audioCtx.createOscillator();
-    const amp = audioCtx.createGain();
-    osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(from, audioCtx.currentTime);
-    osc.frequency.linearRampToValueAtTime(to, audioCtx.currentTime + seconds);
-    amp.gain.setValueAtTime(gain, audioCtx.currentTime);
-    amp.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + seconds);
-    osc.connect(amp);
-    amp.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + seconds);
   }
 
   function scheduleReconnect() {

@@ -310,6 +310,17 @@ select {
   transform: translate(-50%, -50%);
 }
 
+.base-dot span {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .live-dot {
   width: 7px;
   height: 7px;
