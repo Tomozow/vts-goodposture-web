@@ -325,50 +325,60 @@ function playAlert(kind, level) {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) return;
   if (!alertAudio) alertAudio = new AudioContextClass();
-  if (alertAudio.state === "suspended") alertAudio.resume();
-  const gain = Math.max(level, 0.001);
+  const run = () => scheduleAlert(kind, Math.max(level, 0.05));
+  if (alertAudio.state === "running") run();
+  else alertAudio.resume().then(run);
+}
+
+function scheduleAlert(kind, gain) {
   if (kind === "double") {
-    tone(880, 0, 0.12, gain, "square");
-    tone(660, 0.16, 0.28, gain, "square");
+    tone(880, 0, 0.14, gain, "square");
+    tone(660, 0.16, 0.32, gain, "square");
   } else if (kind === "triple") {
-    tone(988, 0, 0.08, gain, "square");
-    tone(988, 0.12, 0.2, gain, "square");
-    tone(988, 0.24, 0.36, gain, "square");
+    tone(988, 0, 0.1, gain, "square");
+    tone(988, 0.14, 0.24, gain, "square");
+    tone(988, 0.28, 0.42, gain, "square");
   } else if (kind === "siren") {
     sweep(520, 1400, 0.45, gain);
   } else if (kind === "buzz") {
-    tone(180, 0, 0.18, gain, "sawtooth");
-    tone(140, 0.22, 0.46, gain, "sawtooth");
+    tone(180, 0, 0.2, gain, "sawtooth");
+    tone(140, 0.24, 0.5, gain, "sawtooth");
   } else {
-    tone(880, 0, 0.28, gain, "square");
+    tone(880, 0, 0.3, gain, "square");
   }
 }
 
 function tone(frequency, start, stop, gain, type) {
   const osc = alertAudio.createOscillator();
   const amp = alertAudio.createGain();
+  const begin = alertAudio.currentTime + start;
+  const end = Math.max(begin + 0.05, alertAudio.currentTime + stop);
   osc.type = type;
-  osc.frequency.value = frequency;
-  amp.gain.setValueAtTime(gain, alertAudio.currentTime + start);
-  amp.gain.exponentialRampToValueAtTime(0.001, alertAudio.currentTime + stop);
+  osc.frequency.setValueAtTime(frequency, begin);
+  amp.gain.setValueAtTime(0.0001, begin);
+  amp.gain.exponentialRampToValueAtTime(gain, begin + 0.02);
+  amp.gain.exponentialRampToValueAtTime(0.0001, end);
   osc.connect(amp);
   amp.connect(alertAudio.destination);
-  osc.start(alertAudio.currentTime + start);
-  osc.stop(alertAudio.currentTime + stop);
+  osc.start(begin);
+  osc.stop(end + 0.02);
 }
 
 function sweep(from, to, seconds, gain) {
   const osc = alertAudio.createOscillator();
   const amp = alertAudio.createGain();
+  const begin = alertAudio.currentTime;
+  const end = begin + seconds;
   osc.type = "sawtooth";
-  osc.frequency.setValueAtTime(from, alertAudio.currentTime);
-  osc.frequency.linearRampToValueAtTime(to, alertAudio.currentTime + seconds);
-  amp.gain.setValueAtTime(gain, alertAudio.currentTime);
-  amp.gain.exponentialRampToValueAtTime(0.001, alertAudio.currentTime + seconds);
+  osc.frequency.setValueAtTime(from, begin);
+  osc.frequency.linearRampToValueAtTime(to, end);
+  amp.gain.setValueAtTime(0.0001, begin);
+  amp.gain.exponentialRampToValueAtTime(gain, begin + 0.02);
+  amp.gain.exponentialRampToValueAtTime(0.0001, end);
   osc.connect(amp);
   amp.connect(alertAudio.destination);
-  osc.start();
-  osc.stop(alertAudio.currentTime + seconds);
+  osc.start(begin);
+  osc.stop(end + 0.02);
 }
 
 function boot() {
