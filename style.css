@@ -95,6 +95,17 @@ body {
   visibility: visible;
 }
 
+.score-line.is-paused {
+  grid-template-columns: auto;
+}
+
+.score-line.is-paused #live-score {
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--muted);
+  text-align: left;
+}
+
 #live-score {
   display: block;
   font-variant-numeric: tabular-nums;

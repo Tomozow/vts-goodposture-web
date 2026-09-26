@@ -20,6 +20,7 @@ const ALERT_PARAM_SPECS = [
   { parameterName: "PostureAlertDuration", explanation: "Seconds the score must stay low before the alert", min: 0, max: 3600, defaultValue: 3 },
   { parameterName: "PostureAlertCooldown", explanation: "Seconds between alert sounds", min: 0, max: 3600, defaultValue: 10 },
   { parameterName: "PostureAlertVolume", explanation: "Alert volume from 0 to 1", min: 0, max: 1, defaultValue: 0.5 },
+  { parameterName: "PostureAlertFrom", explanation: "0 overlay, 1 control page", min: 0, max: 1, defaultValue: 0 },
   { parameterName: "PostureTheme", explanation: "0 for dark theme, 1 for light theme", min: 0, max: 1, defaultValue: 0 },
   { parameterName: "PostureOverlayStyle", explanation: "0 clear, 1 white background, 2 black background", min: 0, max: 2, defaultValue: 1 },
   { parameterName: "PosturePlateFade", explanation: "0 opaque plate, 1 fully transparent", min: 0, max: 1, defaultValue: 0 },
@@ -92,6 +93,7 @@ function defaultSettings() {
     cooldown: 10,
     volume: 0.5,
     sound: ALERTS[0],
+    alertFrom: "overlay",
     theme: "dark",
     overlayStyle: "light",
     plateFade: 0,
@@ -173,6 +175,7 @@ function loadStore(key) {
     settings.cooldown = clamp(saved.cooldown, 0, 3600, settings.cooldown);
     settings.volume = clamp(saved.volume, 0, 1, settings.volume);
     if (ALERTS.includes(saved.sound)) settings.sound = saved.sound;
+    settings.alertFrom = saved.alertFrom === "control" ? "control" : "overlay";
     settings.theme = saved.theme === "light" ? "light" : "dark";
     settings.overlayStyle = saved.overlayStyle === "dark" ? "dark" : "light";
     settings.plateFade = clamp(saved.plateFade, 0, 1, 0);
@@ -420,6 +423,8 @@ function startControl() {
   let loopTimer = 0;
   let reconnectTimer = 0;
   let session = 0;
+  let badSince = null;
+  let lastSound = 0;
 
   hostInput.value = settings.host;
   hostInput.addEventListener("input", () => {
@@ -432,6 +437,7 @@ function startControl() {
   alphaInput.value = String(settings.alpha);
   alphaVal.textContent = settings.alpha.toFixed(2);
   document.getElementById("alert").checked = settings.alert;
+  document.getElementById("alert-from").value = settings.alertFrom;
   const themeIcons = {
     light: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`,
     dark: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 14.5A8.5 8.5 0 1 1 9.5 3 7 7 0 0 0 21 14.5z"/></svg>`,
@@ -475,6 +481,7 @@ function startControl() {
     settings.alpha = clamp(alphaInput.value, 0.01, 1, 0.1);
     alphaVal.textContent = settings.alpha.toFixed(2);
     settings.alert = document.getElementById("alert").checked;
+    settings.alertFrom = document.getElementById("alert-from").value === "control" ? "control" : "overlay";
     settings.threshold = clamp(document.getElementById("threshold").value, 0, 100, 70);
     settings.duration = clamp(document.getElementById("duration").value, 0, 3600, 3);
     settings.cooldown = clamp(document.getElementById("cooldown").value, 0, 3600, 10);
@@ -509,6 +516,7 @@ function startControl() {
       { id: "PostureAlertDuration", value: settings.duration },
       { id: "PostureAlertCooldown", value: settings.cooldown },
       { id: "PostureAlertVolume", value: settings.volume },
+      { id: "PostureAlertFrom", value: settings.alertFrom === "control" ? 1 : 0 },
       { id: "PostureTheme", value: settings.theme === "light" ? 1 : 0 },
       { id: "PostureOverlayStyle", value: Math.max(0, OVERLAY_PLATES.indexOf(settings.overlayStyle)) },
       { id: "PosturePlateFade", value: settings.plateFade },
@@ -533,12 +541,23 @@ function startControl() {
     liveScore.textContent = "";
     liveScore.style.color = "";
     liveStatus.textContent = "";
-    liveScore.closest(".score-line").classList.remove("is-live");
+    const line = liveScore.closest(".score-line");
+    line.classList.remove("is-live", "is-paused");
+  }
+
+  function paintPaused() {
+    const line = liveScore.closest(".score-line");
+    line.classList.add("is-live", "is-paused");
+    liveScore.textContent = "停止中";
+    liveScore.style.color = "";
+    liveStatus.textContent = "";
   }
 
   function paintScore(value) {
     const look = scoreAppearance(value);
-    liveScore.closest(".score-line").classList.add("is-live");
+    const line = liveScore.closest(".score-line");
+    line.classList.add("is-live");
+    line.classList.remove("is-paused");
     liveScore.textContent = Number(value).toFixed(2);
     liveScore.style.color = look.color;
     liveStatus.textContent = look.label;
@@ -713,6 +732,8 @@ function startControl() {
         score = 100;
         paintScore(score);
         setStatus("監視中");
+      } else {
+        paintPaused();
       }
       scheduleLoop(0);
     } catch (error) {
@@ -744,6 +765,19 @@ function startControl() {
     loopTimer = window.setTimeout(tick, delay);
   }
 
+  function noteControlAlert(value) {
+    const now = performance.now() / 1000;
+    if (value <= settings.threshold) {
+      if (badSince == null) badSince = now;
+      if (now - badSince >= settings.duration && now - lastSound >= settings.cooldown) {
+        playAlert(settings.sound, settings.volume);
+        lastSound = now;
+      }
+    } else {
+      badSince = null;
+    }
+  }
+
   async function tick() {
     if (!client.connected) return;
     if (document.visibilityState !== "visible") {
@@ -763,6 +797,8 @@ function startControl() {
           score = applyEma(score, raw, settings.alpha);
           paintScore(score);
           scoreValue = score;
+          if (settings.alert && settings.alertFrom === "control") noteControlAlert(score);
+          else badSince = null;
         }
       }
       const injected = await client.request("InjectParameterDataRequest", {
@@ -810,7 +846,8 @@ function startControl() {
   document.getElementById("stop").addEventListener("click", () => {
     monitoring = false;
     score = 100;
-    paintScore(score);
+    if (client.connected) paintPaused();
+    else clearScore();
     setStatus(client.connected ? "接続しました" : "未接続");
   });
 
@@ -898,7 +935,7 @@ function startControl() {
     document.getElementById("plate-fade-val").textContent = clamp(plateFadeInput.value, 0, 1, 0).toFixed(2);
   });
 
-  for (const id of ["host", "port", "auto-start", "polling", "alpha", "alert", "sound", "threshold", "duration", "cooldown", "volume", "overlay-style", "plate-fade", "score-mode", "show-gauge", "show-label"]) {
+  for (const id of ["host", "port", "auto-start", "polling", "alpha", "alert", "alert-from", "sound", "threshold", "duration", "cooldown", "volume", "overlay-style", "plate-fade", "score-mode", "show-gauge", "show-label"]) {
     document.getElementById(id).addEventListener("change", readForm);
   }
 
@@ -918,6 +955,7 @@ function startOverlay() {
   let showGauge = true;
   let showLabel = true;
   let plateFade = 0;
+  let playOnOverlay = true;
   const rawPort = query.get("port");
   const port = rawPort == null || rawPort === "" ? 8001 : clamp(rawPort, 1, 65535, 8001);
   const host = (query.get("host") || "127.0.0.1").trim();
@@ -971,6 +1009,7 @@ function startOverlay() {
     if (Number.isFinite(values.PostureAlertDuration)) duration = clamp(values.PostureAlertDuration, 0, 3600, duration);
     if (Number.isFinite(values.PostureAlertCooldown)) cooldown = clamp(values.PostureAlertCooldown, 0, 3600, cooldown);
     if (Number.isFinite(values.PostureAlertVolume)) volume = clamp(values.PostureAlertVolume, 0, 1, volume);
+    if (Number.isFinite(values.PostureAlertFrom)) playOnOverlay = values.PostureAlertFrom < 0.5;
     if (Number.isFinite(values.PostureTheme)) {
       document.documentElement.dataset.theme = values.PostureTheme >= 0.5 ? "light" : "dark";
     }
@@ -1003,6 +1042,7 @@ function startOverlay() {
     settings.cooldown = cooldown;
     settings.volume = volume;
     settings.sound = sound;
+    settings.alertFrom = playOnOverlay ? "overlay" : "control";
     settings.theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
     settings.overlayStyle = OVERLAY_PLATES.includes(document.documentElement.dataset.plate)
       ? document.documentElement.dataset.plate
@@ -1022,6 +1062,7 @@ function startOverlay() {
     cooldown = settings.cooldown;
     volume = settings.volume;
     sound = settings.sound;
+    playOnOverlay = settings.alertFrom !== "control";
     scoreMode = settings.scoreMode;
     showGauge = settings.showGauge;
     showLabel = settings.showLabel;
@@ -1032,7 +1073,7 @@ function startOverlay() {
   }
 
   function maybeAlert(score) {
-    if (!alertOn) {
+    if (!alertOn || !playOnOverlay) {
       badSince = null;
       return;
     }
