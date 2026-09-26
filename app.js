@@ -334,16 +334,13 @@ let alertPlayer = null;
 
 function playAlert(kind, level) {
   const file = ALERTS.includes(kind) ? kind : ALERTS[0];
-  if (!alertPlayer) alertPlayer = new Audio();
-  alertPlayer.pause();
-  alertPlayer.src = new URL(`sounds/${encodeURIComponent(file)}`, document.baseURI).href;
-  alertPlayer.volume = Math.min(1, Math.max(0, Number(level) || 0));
-  const start = () => {
-    alertPlayer.currentTime = 0;
-    alertPlayer.play().catch(() => {});
-  };
-  if (alertPlayer.readyState >= 2) start();
-  else alertPlayer.addEventListener("canplay", start, { once: true });
+  const url = new URL(`sounds/${encodeURIComponent(file)}`, document.baseURI).href;
+  if (alertPlayer) alertPlayer.pause();
+  // 同じ要素の src を差し替えると、直前の音声がまだ読める状態のまま再生される
+  const player = new Audio(url);
+  alertPlayer = player;
+  player.volume = Math.min(1, Math.max(0, Number(level) || 0));
+  player.play().catch(() => {});
 }
 
 function boot() {
