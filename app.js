@@ -28,6 +28,7 @@ const ALERT_PARAM_SPECS = [
   { parameterName: "PostureGauge", explanation: "1 when the overlay gauge is shown", min: 0, max: 1, defaultValue: 1 },
   { parameterName: "PostureLabel", explanation: "1 when the overlay status word is shown", min: 0, max: 1, defaultValue: 1 },
   { parameterName: "PostureVisible", explanation: "1 while the control tab is visible", min: 0, max: 1, defaultValue: 0 },
+  { parameterName: "PostureMonitoring", explanation: "1 while posture monitoring is running", min: 0, max: 1, defaultValue: 0 },
 ];
 
 function scoreSyncSpecs() {
@@ -524,6 +525,7 @@ function startControl() {
       { id: "PostureGauge", value: settings.showGauge ? 1 : 0 },
       { id: "PostureLabel", value: settings.showLabel ? 1 : 0 },
       { id: "PostureVisible", value: 1 },
+      { id: "PostureMonitoring", value: monitoring ? 1 : 0 },
       { id: "PostureAlpha", value: settings.alpha },
     ];
     for (const name of PARAMS) {
@@ -984,6 +986,17 @@ function startOverlay() {
     gaugeEl.parentElement.hidden = true;
   }
 
+  function showPaused() {
+    badSince = null;
+    scoreEl.classList.remove("is-status");
+    scoreEl.textContent = "--";
+    scoreEl.style.color = "";
+    labelEl.textContent = "停止中";
+    labelEl.style.color = "";
+    gaugeEl.style.width = "0";
+    gaugeEl.parentElement.hidden = true;
+  }
+
   function showScore(score) {
     const look = scoreAppearance(score);
     scoreEl.classList.remove("is-status");
@@ -1134,7 +1147,9 @@ function startOverlay() {
         if (controlOpen) {
           ownScore = null;
           rememberSettings(values);
-          if (!Number.isFinite(values[PARAM_NAME])) showStatus("スコアを受信していません");
+          const monitoringOn = !Number.isFinite(values.PostureMonitoring) || values.PostureMonitoring >= 0.5;
+          if (!monitoringOn) showPaused();
+          else if (!Number.isFinite(values[PARAM_NAME])) showStatus("スコアを受信していません");
           else showScore(roundDigits(values[PARAM_NAME], 2));
         } else if (settings.configured) {
           useStoredSettings();
