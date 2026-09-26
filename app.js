@@ -13,6 +13,15 @@ const DEFAULT_WEIGHTS = {
 };
 const PARAM_NAME = "PostureScore";
 const PLUGIN_DEVELOPER = "Developer";
+const ALERT_PARAM_SPECS = [
+  { parameterName: "PostureAlert", explanation: "1 when the posture alert sound is enabled", min: 0, max: 1, defaultValue: 0 },
+  { parameterName: "PostureAlertSound", explanation: "Index of the selected alert sound", min: 0, max: 7, defaultValue: 0 },
+  { parameterName: "PostureAlertThreshold", explanation: "Score at or below which the alert can play", min: 0, max: 100, defaultValue: 70 },
+  { parameterName: "PostureAlertDuration", explanation: "Seconds the score must stay low before the alert", min: 0, max: 3600, defaultValue: 3 },
+  { parameterName: "PostureAlertCooldown", explanation: "Seconds between alert sounds", min: 0, max: 3600, defaultValue: 10 },
+  { parameterName: "PostureAlertVolume", explanation: "Alert volume from 0 to 1", min: 0, max: 1, defaultValue: 0.5 },
+  { parameterName: "PostureTheme", explanation: "0 for dark theme, 1 for light theme", min: 0, max: 1, defaultValue: 0 },
+];
 
 const ALERTS = [
   "警告音　サイレン.mp3",
@@ -417,20 +426,26 @@ function startControl() {
   }
 
   function refreshOverlayUrl() {
-    const query = new URLSearchParams({
-      overlay: "1",
-      alert: settings.alert ? "1" : "0",
-      threshold: String(settings.threshold),
-      duration: String(settings.duration),
-      cooldown: String(settings.cooldown),
-      volume: String(settings.volume),
-      sound: settings.sound,
-      port: String(settings.port),
-      host: settings.host,
-      theme: settings.theme,
-    });
+    const query = new URLSearchParams({ overlay: "1" });
+    if (settings.host !== "127.0.0.1") query.set("host", settings.host);
+    if (settings.port !== 8001) query.set("port", String(settings.port));
     const path = location.pathname.endsWith("/") ? `${location.pathname}index.html` : location.pathname;
     overlayUrl.value = `${location.origin}${path}?${query}`;
+  }
+
+  function alertParameterValues(score) {
+    const soundIndex = ALERTS.indexOf(settings.sound);
+    const values = [
+      { id: "PostureAlert", value: settings.alert ? 1 : 0 },
+      { id: "PostureAlertSound", value: soundIndex >= 0 ? soundIndex : 0 },
+      { id: "PostureAlertThreshold", value: settings.threshold },
+      { id: "PostureAlertDuration", value: settings.duration },
+      { id: "PostureAlertCooldown", value: settings.cooldown },
+      { id: "PostureAlertVolume", value: settings.volume },
+      { id: "PostureTheme", value: settings.theme === "light" ? 1 : 0 },
+    ];
+    if (score != null) values.unshift({ id: PARAM_NAME, value: score });
+    return values.map((item) => ({ ...item, weight: 1 }));
   }
 
   function applyTheme() {
@@ -585,14 +600,20 @@ function startControl() {
       if (created.messageType === "APIError") {
         throw new Error(apiErrorText(created) || "PostureScore を作成できません");
       }
+      for (const spec of ALERT_PARAM_SPECS) {
+        const made = await client.request("ParameterCreationRequest", spec);
+        if (made.messageType === "APIError") {
+          throw new Error(apiErrorText(made) || `${spec.parameterName} を作成できません`);
+        }
+      }
       setStatus("接続しました");
       if (settings.autoStart) monitoring = true;
       if (monitoring) {
         score = 100;
         paintScore(score);
         setStatus("監視中");
-        scheduleLoop(0);
       }
+      scheduleLoop(0);
     } catch (error) {
       if (current !== session) return;
       setStatus(error.message || "接続に失敗しました");
@@ -618,34 +639,38 @@ function startControl() {
 
   function scheduleLoop(delay) {
     window.clearTimeout(loopTimer);
-    if (!monitoring || !client.connected) return;
+    if (!client.connected) return;
     loopTimer = window.setTimeout(tick, delay);
   }
 
   async function tick() {
-    if (!monitoring || !client.connected) return;
+    if (!client.connected) return;
     if (document.visibilityState !== "visible") {
       updateHiddenWarn();
       scheduleLoop(settings.pollingMs);
       return;
     }
     const started = performance.now();
+    let scoreValue = null;
     try {
-      const listed = await client.request("InputParameterListRequest", {});
-      const values = readListedParams(listed);
-      if (values) {
-        paintParamCards(values);
-        const raw = calculateRawScore(values, settings.minLimits, settings.maxLimits, settings.weights);
-        score = applyEma(score, raw, settings.alpha);
-        paintScore(score);
-        const injected = await client.request("InjectParameterDataRequest", {
-          faceFound: true,
-          mode: "set",
-          parameterValues: [{ id: PARAM_NAME, value: score, weight: 1 }],
-        });
-        if (injected.messageType === "APIError") {
-          setStatus(apiErrorText(injected) || "スコアを書き込めません");
+      if (monitoring) {
+        const listed = await client.request("InputParameterListRequest", {});
+        const values = readListedParams(listed);
+        if (values) {
+          paintParamCards(values);
+          const raw = calculateRawScore(values, settings.minLimits, settings.maxLimits, settings.weights);
+          score = applyEma(score, raw, settings.alpha);
+          paintScore(score);
+          scoreValue = score;
         }
+      }
+      const injected = await client.request("InjectParameterDataRequest", {
+        faceFound: true,
+        mode: "set",
+        parameterValues: alertParameterValues(scoreValue),
+      });
+      if (injected.messageType === "APIError") {
+        setStatus(apiErrorText(injected) || "設定を書き込めません");
       }
     } catch (error) {
       if (!client.closedByUser) setStatus(error.message || "監視に失敗しました");
@@ -683,7 +708,6 @@ function startControl() {
 
   document.getElementById("stop").addEventListener("click", () => {
     monitoring = false;
-    window.clearTimeout(loopTimer);
     score = 100;
     paintScore(score);
     setStatus(client.connected ? "接続しました" : "未接続");
@@ -772,12 +796,12 @@ function startControl() {
 
 function startOverlay() {
   const query = new URLSearchParams(location.search);
-  const alertOn = query.get("alert") === "1";
-  const threshold = clamp(query.get("threshold"), 0, 100, 70);
-  const duration = clamp(query.get("duration"), 0, 3600, 3);
-  const cooldown = clamp(query.get("cooldown"), 0, 3600, 10);
-  const volume = clamp(query.get("volume"), 0, 1, 0.5);
-  const sound = ALERTS.includes(query.get("sound")) ? query.get("sound") : ALERTS[0];
+  let alertOn = false;
+  let threshold = 70;
+  let duration = 3;
+  let cooldown = 10;
+  let volume = 0.5;
+  let sound = ALERTS[0];
   const port = clamp(query.get("port"), 1, 65535, 8001);
   const host = (query.get("host") || "127.0.0.1").trim();
 
@@ -812,6 +836,19 @@ function startOverlay() {
     gaugeEl.style.backgroundColor = look.color;
     gaugeEl.parentElement.hidden = false;
     maybeAlert(score);
+  }
+
+  function applyRemoteSettings(values) {
+    if (Number.isFinite(values.PostureAlert)) alertOn = values.PostureAlert >= 0.5;
+    const soundIndex = Math.round(Number(values.PostureAlertSound));
+    if (ALERTS[soundIndex]) sound = ALERTS[soundIndex];
+    if (Number.isFinite(values.PostureAlertThreshold)) threshold = clamp(values.PostureAlertThreshold, 0, 100, threshold);
+    if (Number.isFinite(values.PostureAlertDuration)) duration = clamp(values.PostureAlertDuration, 0, 3600, duration);
+    if (Number.isFinite(values.PostureAlertCooldown)) cooldown = clamp(values.PostureAlertCooldown, 0, 3600, cooldown);
+    if (Number.isFinite(values.PostureAlertVolume)) volume = clamp(values.PostureAlertVolume, 0, 1, volume);
+    if (Number.isFinite(values.PostureTheme)) {
+      document.documentElement.dataset.theme = values.PostureTheme >= 0.5 ? "light" : "dark";
+    }
   }
 
   function maybeAlert(score) {
@@ -855,13 +892,13 @@ function startOverlay() {
   async function poll() {
     if (!client.connected) return;
     try {
-      const message = await client.request("ParameterValueRequest", { name: PARAM_NAME });
-      if (message.messageType === "APIError") {
+      const listed = await client.request("InputParameterListRequest", {});
+      const values = readListedParams(listed);
+      if (!values || !Number.isFinite(values[PARAM_NAME])) {
         showMissing();
-      } else if (message.data && Number.isFinite(Number(message.data.value))) {
-        showScore(roundDigits(Number(message.data.value), 2));
       } else {
-        showMissing();
+        applyRemoteSettings(values);
+        showScore(roundDigits(values[PARAM_NAME], 2));
       }
     } catch (_) {
       showMissing();
