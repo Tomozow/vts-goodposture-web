@@ -105,6 +105,7 @@ function defaultSettings() {
     showLabel: true,
     showTitle: true,
     configured: false,
+    monitoring: false,
   };
 }
 
@@ -188,6 +189,7 @@ function loadStore(key) {
     if (typeof saved.showLabel === "boolean") settings.showLabel = saved.showLabel;
     if (typeof saved.showTitle === "boolean") settings.showTitle = saved.showTitle;
     settings.configured = saved.configured === true;
+    settings.monitoring = saved.monitoring === true;
   } catch (_) {
     /* 壊れた保存値は初期値のまま使う */
   }
@@ -1182,15 +1184,19 @@ function startOverlay() {
           showStatus("切断しました");
         } else if (controlOpen) {
           ownScore = null;
+          if (Number.isFinite(values.PostureMonitoring)) {
+            const on = values.PostureMonitoring >= 0.5;
+            if (settings.monitoring !== on) {
+              settings.monitoring = on;
+              save();
+            }
+          }
           rememberSettings(values);
           const monitoringOn = !Number.isFinite(values.PostureMonitoring) || values.PostureMonitoring >= 0.5;
           if (!monitoringOn) showPaused();
           else if (!Number.isFinite(values[PARAM_NAME])) showStatus("スコアを受信していません");
           else showScore(roundDigits(values[PARAM_NAME], 2));
-        } else if (Number.isFinite(values.PostureMonitoring) && values.PostureMonitoring < 0.5) {
-          useStoredSettings();
-          showPaused();
-        } else if (settings.configured) {
+        } else if (settings.configured && settings.monitoring) {
           useStoredSettings();
           const faceReady = PARAMS.every((name) => Number.isFinite(values[name]));
           if (!faceReady) {
@@ -1200,6 +1206,9 @@ function startOverlay() {
             ownScore = ownScore == null ? raw : applyEma(ownScore, raw, settings.alpha);
             showScore(ownScore);
           }
+        } else if (settings.configured) {
+          useStoredSettings();
+          showPaused();
         } else {
           showStatus("設定タブを表示してください。");
         }
