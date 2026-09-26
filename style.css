@@ -380,6 +380,24 @@ html:not(.overlay) #overlay {
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
 }
 
+.ov-reconnect {
+  margin-top: 1rem;
+  padding: 0.45rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+
+.ov-reconnect:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .ov-gauge {
   width: min(20rem, 86vw);
   height: 8px;

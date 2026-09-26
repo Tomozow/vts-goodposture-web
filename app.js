@@ -813,10 +813,13 @@ function startOverlay() {
   const scoreEl = document.getElementById("ov-score");
   const labelEl = document.getElementById("ov-label");
   const gaugeEl = document.getElementById("ov-gauge-fill");
+  const reconnectButton = document.getElementById("ov-reconnect");
 
   let badSince = null;
   let lastSound = 0;
   let reconnectTimer = 0;
+  let session = 0;
+  let connecting = false;
 
   function showMissing() {
     scoreEl.textContent = "";
@@ -824,6 +827,9 @@ function startOverlay() {
     labelEl.textContent = "未接続";
     gaugeEl.style.width = "0";
     gaugeEl.parentElement.hidden = true;
+    reconnectButton.hidden = false;
+    reconnectButton.disabled = connecting;
+    reconnectButton.textContent = connecting ? "接続しています" : "再接続";
   }
 
   function showScore(score) {
@@ -835,6 +841,7 @@ function startOverlay() {
     gaugeEl.style.width = `${Math.max(0, Math.min(100, score))}%`;
     gaugeEl.style.backgroundColor = look.color;
     gaugeEl.parentElement.hidden = false;
+    reconnectButton.hidden = true;
     maybeAlert(score);
   }
 
@@ -874,15 +881,35 @@ function startOverlay() {
   }
 
   async function openSession() {
+    window.clearTimeout(reconnectTimer);
+    const current = ++session;
+    connecting = true;
+    showMissing();
+    if (client.ws) {
+      client.close();
+      client.closedByUser = false;
+    }
     try {
       await client.connect(host, port);
+      if (current !== session) return;
       await client.authenticate(settings, save);
+      if (current !== session) return;
+      connecting = false;
       poll();
     } catch (_) {
+      if (current !== session) return;
+      connecting = false;
       showMissing();
       scheduleReconnect();
     }
   }
+
+  reconnectButton.addEventListener("click", () => {
+    if (connecting) return;
+    settings.token = "";
+    save();
+    openSession();
+  });
 
   client.onClose = () => {
     showMissing();
