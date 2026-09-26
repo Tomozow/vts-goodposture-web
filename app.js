@@ -29,6 +29,7 @@ const ALERT_PARAM_SPECS = [
   { parameterName: "PostureLabel", explanation: "1 when the overlay status word is shown", min: 0, max: 1, defaultValue: 1 },
   { parameterName: "PostureVisible", explanation: "1 while the control tab is visible", min: 0, max: 1, defaultValue: 0 },
   { parameterName: "PostureMonitoring", explanation: "1 while posture monitoring is running", min: 0, max: 1, defaultValue: 0 },
+  { parameterName: "PostureDismiss", explanation: "1 when the control page disconnects", min: 0, max: 1, defaultValue: 0 },
 ];
 
 function scoreSyncSpecs() {
@@ -426,6 +427,7 @@ function startControl() {
   let session = 0;
   let badSince = null;
   let lastSound = 0;
+  let dismiss = false;
 
   hostInput.value = settings.host;
   hostInput.addEventListener("input", () => {
@@ -526,6 +528,7 @@ function startControl() {
       { id: "PostureLabel", value: settings.showLabel ? 1 : 0 },
       { id: "PostureVisible", value: 1 },
       { id: "PostureMonitoring", value: monitoring ? 1 : 0 },
+      { id: "PostureDismiss", value: dismiss ? 1 : 0 },
       { id: "PostureAlpha", value: settings.alpha },
     ];
     for (const name of PARAMS) {
@@ -702,6 +705,7 @@ function startControl() {
   }
 
   async function openSession() {
+    dismiss = false;
     window.clearTimeout(reconnectTimer);
     const current = ++session;
     readForm();
@@ -763,7 +767,7 @@ function startControl() {
 
   function scheduleLoop(delay) {
     window.clearTimeout(loopTimer);
-    if (!client.connected) return;
+    if (!client.connected || dismiss) return;
     loopTimer = window.setTimeout(tick, delay);
   }
 
@@ -781,7 +785,7 @@ function startControl() {
   }
 
   async function tick() {
-    if (!client.connected) return;
+    if (!client.connected || dismiss) return;
     if (document.visibilityState !== "visible") {
       updateHiddenWarn();
       scheduleLoop(settings.pollingMs);
@@ -823,11 +827,23 @@ function startControl() {
     openSession();
   });
 
-  document.getElementById("disconnect").addEventListener("click", () => {
+  document.getElementById("disconnect").addEventListener("click", async () => {
     monitoring = false;
+    dismiss = true;
     window.clearTimeout(loopTimer);
     window.clearTimeout(reconnectTimer);
     session += 1;
+    if (client.connected) {
+      try {
+        await client.request("InjectParameterDataRequest", {
+          faceFound: true,
+          mode: "set",
+          parameterValues: [{ id: "PostureDismiss", value: 1, weight: 1 }],
+        });
+      } catch (_) {
+        /* 切断の合図が送れなくても、こちらは切断する */
+      }
+    }
     client.close();
     clearScore();
     setStatus("切断しました");
@@ -976,6 +992,7 @@ function startOverlay() {
   let reconnectTimer = 0;
   let session = 0;
   let ownScore = null;
+  let dismissed = false;
 
   function showStatus(text) {
     scoreEl.textContent = text;
@@ -1144,13 +1161,22 @@ function startOverlay() {
         showStatus("スコアを受信していません");
       } else {
         const controlOpen = Number.isFinite(values.PostureVisible) && values.PostureVisible >= 0.5;
-        if (controlOpen) {
+        if (controlOpen) dismissed = false;
+        else if (Number.isFinite(values.PostureDismiss) && values.PostureDismiss >= 0.5) dismissed = true;
+        if (dismissed) {
+          ownScore = null;
+          badSince = null;
+          showStatus("切断しました");
+        } else if (controlOpen) {
           ownScore = null;
           rememberSettings(values);
           const monitoringOn = !Number.isFinite(values.PostureMonitoring) || values.PostureMonitoring >= 0.5;
           if (!monitoringOn) showPaused();
           else if (!Number.isFinite(values[PARAM_NAME])) showStatus("スコアを受信していません");
           else showScore(roundDigits(values[PARAM_NAME], 2));
+        } else if (Number.isFinite(values.PostureMonitoring) && values.PostureMonitoring < 0.5) {
+          useStoredSettings();
+          showPaused();
         } else if (settings.configured) {
           useStoredSettings();
           const faceReady = PARAMS.every((name) => Number.isFinite(values[name]));
