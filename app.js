@@ -21,12 +21,30 @@ const ALERT_PARAM_SPECS = [
   { parameterName: "PostureAlertCooldown", explanation: "Seconds between alert sounds", min: 0, max: 3600, defaultValue: 10 },
   { parameterName: "PostureAlertVolume", explanation: "Alert volume from 0 to 1", min: 0, max: 1, defaultValue: 0.5 },
   { parameterName: "PostureTheme", explanation: "0 for dark theme, 1 for light theme", min: 0, max: 1, defaultValue: 0 },
-  { parameterName: "PostureOverlayStyle", explanation: "0 clear, 1 white background, 2 black background", min: 0, max: 2, defaultValue: 0 },
+  { parameterName: "PostureOverlayStyle", explanation: "0 clear, 1 white background, 2 black background", min: 0, max: 2, defaultValue: 1 },
+  { parameterName: "PosturePlateFade", explanation: "0 opaque plate, 1 fully transparent", min: 0, max: 1, defaultValue: 0 },
   { parameterName: "PostureScoreMode", explanation: "0 decimals, 1 integer, 2 hidden", min: 0, max: 2, defaultValue: 0 },
   { parameterName: "PostureGauge", explanation: "1 when the overlay gauge is shown", min: 0, max: 1, defaultValue: 1 },
   { parameterName: "PostureLabel", explanation: "1 when the overlay status word is shown", min: 0, max: 1, defaultValue: 1 },
   { parameterName: "PostureVisible", explanation: "1 while the control tab is visible", min: 0, max: 1, defaultValue: 0 },
 ];
+
+function scoreSyncSpecs() {
+  const specs = [
+    { parameterName: "PostureAlpha", explanation: "Smoothing alpha for the posture score", min: 0, max: 1, defaultValue: 0.1 },
+  ];
+  for (const name of PARAMS) {
+    const angle = name.includes("Angle");
+    const min = angle ? -180 : -50;
+    const max = angle ? 180 : 50;
+    specs.push(
+      { parameterName: `PostureMin${name}`, explanation: `Lower limit for ${name}`, min, max, defaultValue: 0 },
+      { parameterName: `PostureMax${name}`, explanation: `Upper limit for ${name}`, min, max, defaultValue: 0 },
+      { parameterName: `PostureWeight${name}`, explanation: `Weight for ${name}`, min: 0, max: 5, defaultValue: 1 },
+    );
+  }
+  return specs;
+}
 const OVERLAY_PLATES = ["clear", "light", "dark"];
 const SCORE_MODES = ["decimal", "integer", "none"];
 
@@ -75,10 +93,12 @@ function defaultSettings() {
     volume: 0.5,
     sound: ALERTS[0],
     theme: "dark",
-    overlayStyle: "clear",
+    overlayStyle: "light",
+    plateFade: 0,
     scoreMode: "decimal",
     showGauge: true,
     showLabel: true,
+    configured: false,
   };
 }
 
@@ -154,10 +174,12 @@ function loadStore(key) {
     settings.volume = clamp(saved.volume, 0, 1, settings.volume);
     if (ALERTS.includes(saved.sound)) settings.sound = saved.sound;
     settings.theme = saved.theme === "light" ? "light" : "dark";
-    if (OVERLAY_PLATES.includes(saved.overlayStyle)) settings.overlayStyle = saved.overlayStyle;
+    settings.overlayStyle = saved.overlayStyle === "dark" ? "dark" : "light";
+    settings.plateFade = clamp(saved.plateFade, 0, 1, 0);
     if (SCORE_MODES.includes(saved.scoreMode)) settings.scoreMode = saved.scoreMode;
     if (typeof saved.showGauge === "boolean") settings.showGauge = saved.showGauge;
     if (typeof saved.showLabel === "boolean") settings.showLabel = saved.showLabel;
+    settings.configured = saved.configured === true;
   } catch (_) {
     /* 壊れた保存値は初期値のまま使う */
   }
@@ -428,6 +450,8 @@ function startControl() {
   document.getElementById("volume-val").textContent = Number(settings.volume).toFixed(1);
   document.getElementById("sound").value = settings.sound;
   document.getElementById("overlay-style").value = settings.overlayStyle;
+  document.getElementById("plate-fade").value = String(settings.plateFade);
+  document.getElementById("plate-fade-val").textContent = settings.plateFade.toFixed(2);
   document.getElementById("score-mode").value = settings.scoreMode;
   document.getElementById("show-gauge").checked = settings.showGauge;
   document.getElementById("show-label").checked = settings.showLabel;
@@ -457,7 +481,9 @@ function startControl() {
     settings.volume = clamp(document.getElementById("volume").value, 0, 1, 0.5);
     settings.sound = document.getElementById("sound").value;
     const plate = document.getElementById("overlay-style").value;
-    settings.overlayStyle = OVERLAY_PLATES.includes(plate) ? plate : "clear";
+    settings.overlayStyle = plate === "dark" ? "dark" : "light";
+    settings.plateFade = clamp(document.getElementById("plate-fade").value, 0, 1, 0);
+    document.getElementById("plate-fade-val").textContent = settings.plateFade.toFixed(2);
     const mode = document.getElementById("score-mode").value;
     settings.scoreMode = SCORE_MODES.includes(mode) ? mode : "decimal";
     settings.showGauge = document.getElementById("show-gauge").checked;
@@ -485,11 +511,20 @@ function startControl() {
       { id: "PostureAlertVolume", value: settings.volume },
       { id: "PostureTheme", value: settings.theme === "light" ? 1 : 0 },
       { id: "PostureOverlayStyle", value: Math.max(0, OVERLAY_PLATES.indexOf(settings.overlayStyle)) },
+      { id: "PosturePlateFade", value: settings.plateFade },
       { id: "PostureScoreMode", value: Math.max(0, SCORE_MODES.indexOf(settings.scoreMode)) },
       { id: "PostureGauge", value: settings.showGauge ? 1 : 0 },
       { id: "PostureLabel", value: settings.showLabel ? 1 : 0 },
       { id: "PostureVisible", value: 1 },
+      { id: "PostureAlpha", value: settings.alpha },
     ];
+    for (const name of PARAMS) {
+      values.push(
+        { id: `PostureMin${name}`, value: settings.minLimits[name] },
+        { id: `PostureMax${name}`, value: settings.maxLimits[name] },
+        { id: `PostureWeight${name}`, value: settings.weights[name] },
+      );
+    }
     if (score != null) values.unshift({ id: PARAM_NAME, value: score });
     return values.map((item) => ({ ...item, weight: 1 }));
   }
@@ -666,7 +701,7 @@ function startControl() {
       if (created.messageType === "APIError") {
         throw new Error(apiErrorText(created) || "PostureScore を作成できません");
       }
-      for (const spec of ALERT_PARAM_SPECS) {
+      for (const spec of [...ALERT_PARAM_SPECS, ...scoreSyncSpecs()]) {
         const made = await client.request("ParameterCreationRequest", spec);
         if (made.messageType === "APIError") {
           throw new Error(apiErrorText(made) || `${spec.parameterName} を作成できません`);
@@ -858,7 +893,12 @@ function startControl() {
     document.getElementById("volume-val").textContent = clamp(volumeInput.value, 0, 1, 0.5).toFixed(1);
   });
 
-  for (const id of ["host", "port", "auto-start", "polling", "alpha", "alert", "sound", "threshold", "duration", "cooldown", "volume", "overlay-style", "score-mode", "show-gauge", "show-label"]) {
+  const plateFadeInput = document.getElementById("plate-fade");
+  plateFadeInput.addEventListener("input", () => {
+    document.getElementById("plate-fade-val").textContent = clamp(plateFadeInput.value, 0, 1, 0).toFixed(2);
+  });
+
+  for (const id of ["host", "port", "auto-start", "polling", "alpha", "alert", "sound", "threshold", "duration", "cooldown", "volume", "overlay-style", "plate-fade", "score-mode", "show-gauge", "show-label"]) {
     document.getElementById(id).addEventListener("change", readForm);
   }
 
@@ -877,6 +917,7 @@ function startOverlay() {
   let scoreMode = "decimal";
   let showGauge = true;
   let showLabel = true;
+  let plateFade = 0;
   const rawPort = query.get("port");
   const port = rawPort == null || rawPort === "" ? 8001 : clamp(rawPort, 1, 65535, 8001);
   const host = (query.get("host") || "127.0.0.1").trim();
@@ -894,6 +935,7 @@ function startOverlay() {
   let lastSound = 0;
   let reconnectTimer = 0;
   let session = 0;
+  let ownScore = null;
 
   function showStatus(text) {
     scoreEl.textContent = text;
@@ -933,11 +975,60 @@ function startOverlay() {
       document.documentElement.dataset.theme = values.PostureTheme >= 0.5 ? "light" : "dark";
     }
     const plateIndex = Math.round(Number(values.PostureOverlayStyle));
-    document.documentElement.dataset.plate = OVERLAY_PLATES[plateIndex] || "clear";
+    document.documentElement.dataset.plate = OVERLAY_PLATES[plateIndex] === "dark" ? "dark" : "light";
+    if (Number.isFinite(values.PosturePlateFade)) plateFade = clamp(values.PosturePlateFade, 0, 1, plateFade);
+    document.documentElement.style.setProperty("--plate-alpha", String(1 - plateFade));
     const modeIndex = Math.round(Number(values.PostureScoreMode));
     if (SCORE_MODES[modeIndex]) scoreMode = SCORE_MODES[modeIndex];
     if (Number.isFinite(values.PostureGauge)) showGauge = values.PostureGauge >= 0.5;
     if (Number.isFinite(values.PostureLabel)) showLabel = values.PostureLabel >= 0.5;
+  }
+
+  function rememberSettings(values) {
+    applyRemoteSettings(values);
+    if (!Number.isFinite(values.PostureAlpha)) return;
+    settings.alpha = clamp(values.PostureAlpha, 0.01, 1, settings.alpha);
+    for (const name of PARAMS) {
+      const minLimit = values[`PostureMin${name}`];
+      const maxLimit = values[`PostureMax${name}`];
+      const weight = values[`PostureWeight${name}`];
+      if (!Number.isFinite(minLimit) || !Number.isFinite(maxLimit) || !Number.isFinite(weight)) return;
+      settings.minLimits[name] = minLimit;
+      settings.maxLimits[name] = maxLimit;
+      settings.weights[name] = clamp(weight, 0.1, 5, settings.weights[name]);
+    }
+    settings.alert = alertOn;
+    settings.threshold = threshold;
+    settings.duration = duration;
+    settings.cooldown = cooldown;
+    settings.volume = volume;
+    settings.sound = sound;
+    settings.theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+    settings.overlayStyle = OVERLAY_PLATES.includes(document.documentElement.dataset.plate)
+      ? document.documentElement.dataset.plate
+      : "clear";
+    settings.scoreMode = scoreMode;
+    settings.showGauge = showGauge;
+    settings.showLabel = showLabel;
+    settings.plateFade = plateFade;
+    settings.configured = true;
+    save();
+  }
+
+  function useStoredSettings() {
+    alertOn = settings.alert;
+    threshold = settings.threshold;
+    duration = settings.duration;
+    cooldown = settings.cooldown;
+    volume = settings.volume;
+    sound = settings.sound;
+    scoreMode = settings.scoreMode;
+    showGauge = settings.showGauge;
+    showLabel = settings.showLabel;
+    document.documentElement.dataset.theme = settings.theme;
+    document.documentElement.dataset.plate = settings.overlayStyle === "dark" ? "dark" : "light";
+    plateFade = settings.plateFade;
+    document.documentElement.style.setProperty("--plate-alpha", String(1 - plateFade));
   }
 
   function maybeAlert(score) {
@@ -998,13 +1089,24 @@ function startOverlay() {
       if (!values) {
         showStatus("スコアを受信していません");
       } else {
-        applyRemoteSettings(values);
-        if (Number.isFinite(values.PostureVisible) && values.PostureVisible < 0.5) {
-          showStatus("設定タブを表示してください。");
-        } else if (!Number.isFinite(values[PARAM_NAME])) {
-          showStatus("スコアを受信していません");
+        const controlOpen = Number.isFinite(values.PostureVisible) && values.PostureVisible >= 0.5;
+        if (controlOpen) {
+          ownScore = null;
+          rememberSettings(values);
+          if (!Number.isFinite(values[PARAM_NAME])) showStatus("スコアを受信していません");
+          else showScore(roundDigits(values[PARAM_NAME], 2));
+        } else if (settings.configured) {
+          useStoredSettings();
+          const faceReady = PARAMS.every((name) => Number.isFinite(values[name]));
+          if (!faceReady) {
+            showStatus("スコアを受信していません");
+          } else {
+            const raw = calculateRawScore(values, settings.minLimits, settings.maxLimits, settings.weights);
+            ownScore = ownScore == null ? raw : applyEma(ownScore, raw, settings.alpha);
+            showScore(ownScore);
+          }
         } else {
-          showScore(roundDigits(values[PARAM_NAME], 2));
+          showStatus("設定タブを表示してください。");
         }
       }
     } catch (error) {

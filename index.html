@@ -40,7 +40,6 @@
         <button id="theme" type="button" aria-label="ライト"></button>
       </div>
     </header>
-    <p class="hint stay-open">配信中は、このタブを開いたままにしてください。</p>
 
     <div class="grid">
       <section>
@@ -114,8 +113,13 @@
           <select id="overlay-style">
             <option value="light">白地に黒</option>
             <option value="dark">黒地に白</option>
-            <option value="clear">背景なし</option>
           </select>
+        </label>
+        <label>透過度
+          <span class="alpha-control">
+            <input id="plate-fade" type="range" min="0" max="1" step="0.05" value="0">
+            <output id="plate-fade-val">0.00</output>
+          </span>
         </label>
         <label>スコア
           <select id="score-mode">
