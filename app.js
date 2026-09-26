@@ -827,7 +827,8 @@ function startOverlay() {
   let cooldown = 10;
   let volume = 0.5;
   let sound = ALERTS[0];
-  const port = clamp(query.get("port"), 1, 65535, 8001);
+  const rawPort = query.get("port");
+  const port = rawPort == null || rawPort === "" ? 8001 : clamp(rawPort, 1, 65535, 8001);
   const host = (query.get("host") || "127.0.0.1").trim();
 
   const storeKey = "vtsGoodPosture.overlay";
