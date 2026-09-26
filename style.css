@@ -554,17 +554,22 @@ html.overlay[data-plate="dark"] body {
 
 html.overlay[data-plate="light"] .ov-score,
 html.overlay[data-plate="light"] .ov-label,
+html.overlay[data-plate="light"] .ov-title,
 html.overlay[data-plate="dark"] .ov-score,
-html.overlay[data-plate="dark"] .ov-label {
+html.overlay[data-plate="dark"] .ov-label,
+html.overlay[data-plate="dark"] .ov-title {
   text-shadow: none;
 }
 
-html.overlay[data-plate="light"] .ov-label {
+html.overlay[data-plate="light"] .ov-label,
+html.overlay[data-plate="light"] .ov-title {
   color: #171717;
 }
 
 html.overlay[data-plate="dark"] .ov-label,
-html.overlay[data-plate="clear"] .ov-label {
+html.overlay[data-plate="dark"] .ov-title,
+html.overlay[data-plate="clear"] .ov-label,
+html.overlay[data-plate="clear"] .ov-title {
   color: #fff;
 }
 
@@ -585,6 +590,14 @@ html:not(.overlay) #overlay {
   justify-content: center;
   text-align: center;
   padding: 1rem;
+}
+
+.ov-title {
+  margin: 0 0 0.35rem;
+  font-size: clamp(1.1rem, 3vw, 1.6rem);
+  font-weight: 500;
+  line-height: 1.2;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
 }
 
 .ov-score {

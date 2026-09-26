@@ -134,6 +134,7 @@
             <option value="none">出さない</option>
           </select>
         </label>
+        <label class="check"><input id="show-title" type="checkbox" checked> 姿勢チェッカー</label>
         <label class="check"><input id="show-gauge" type="checkbox" checked> ゲージ</label>
         <label class="check"><input id="show-label" type="checkbox" checked> 状態説明文（良好・注意・危険）</label>
         <div class="row">
@@ -162,6 +163,7 @@
   </main>
 
   <main id="overlay">
+    <p id="ov-title" class="ov-title">姿勢チェッカー</p>
     <p id="ov-score" class="ov-score">未接続</p>
     <p id="ov-label" class="ov-label"></p>
     <div class="ov-gauge" aria-hidden="true"><div id="ov-gauge-fill"></div></div>

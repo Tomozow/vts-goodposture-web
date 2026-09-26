@@ -27,6 +27,7 @@ const ALERT_PARAM_SPECS = [
   { parameterName: "PostureScoreMode", explanation: "0 decimals, 1 integer, 2 hidden", min: 0, max: 2, defaultValue: 0 },
   { parameterName: "PostureGauge", explanation: "1 when the overlay gauge is shown", min: 0, max: 1, defaultValue: 1 },
   { parameterName: "PostureLabel", explanation: "1 when the overlay status word is shown", min: 0, max: 1, defaultValue: 1 },
+  { parameterName: "PostureTitle", explanation: "1 when the overlay title is shown", min: 0, max: 1, defaultValue: 1 },
   { parameterName: "PostureVisible", explanation: "1 while the control tab is visible", min: 0, max: 1, defaultValue: 0 },
   { parameterName: "PostureMonitoring", explanation: "1 while posture monitoring is running", min: 0, max: 1, defaultValue: 0 },
   { parameterName: "PostureDismiss", explanation: "1 when the control page disconnects", min: 0, max: 1, defaultValue: 0 },
@@ -102,6 +103,7 @@ function defaultSettings() {
     scoreMode: "decimal",
     showGauge: true,
     showLabel: true,
+    showTitle: true,
     configured: false,
   };
 }
@@ -184,6 +186,7 @@ function loadStore(key) {
     if (SCORE_MODES.includes(saved.scoreMode)) settings.scoreMode = saved.scoreMode;
     if (typeof saved.showGauge === "boolean") settings.showGauge = saved.showGauge;
     if (typeof saved.showLabel === "boolean") settings.showLabel = saved.showLabel;
+    if (typeof saved.showTitle === "boolean") settings.showTitle = saved.showTitle;
     settings.configured = saved.configured === true;
   } catch (_) {
     /* 壊れた保存値は初期値のまま使う */
@@ -464,6 +467,7 @@ function startControl() {
   document.getElementById("score-mode").value = settings.scoreMode;
   document.getElementById("show-gauge").checked = settings.showGauge;
   document.getElementById("show-label").checked = settings.showLabel;
+  document.getElementById("show-title").checked = settings.showTitle;
   buildParamCards();
   paintParamCards({});
   refreshOverlayUrl();
@@ -498,6 +502,7 @@ function startControl() {
     settings.scoreMode = SCORE_MODES.includes(mode) ? mode : "decimal";
     settings.showGauge = document.getElementById("show-gauge").checked;
     settings.showLabel = document.getElementById("show-label").checked;
+    settings.showTitle = document.getElementById("show-title").checked;
     save();
     refreshOverlayUrl();
   }
@@ -526,6 +531,7 @@ function startControl() {
       { id: "PostureScoreMode", value: Math.max(0, SCORE_MODES.indexOf(settings.scoreMode)) },
       { id: "PostureGauge", value: settings.showGauge ? 1 : 0 },
       { id: "PostureLabel", value: settings.showLabel ? 1 : 0 },
+      { id: "PostureTitle", value: settings.showTitle ? 1 : 0 },
       { id: "PostureVisible", value: 1 },
       { id: "PostureMonitoring", value: monitoring ? 1 : 0 },
       { id: "PostureDismiss", value: dismiss ? 1 : 0 },
@@ -953,7 +959,7 @@ function startControl() {
     document.getElementById("plate-fade-val").textContent = clamp(plateFadeInput.value, 0, 1, 0).toFixed(2);
   });
 
-  for (const id of ["host", "port", "auto-start", "polling", "alpha", "alert", "alert-from", "sound", "threshold", "duration", "cooldown", "volume", "overlay-style", "plate-fade", "score-mode", "show-gauge", "show-label"]) {
+  for (const id of ["host", "port", "auto-start", "polling", "alpha", "alert", "alert-from", "sound", "threshold", "duration", "cooldown", "volume", "overlay-style", "plate-fade", "score-mode", "show-gauge", "show-label", "show-title"]) {
     document.getElementById(id).addEventListener("change", readForm);
   }
 
@@ -972,6 +978,7 @@ function startOverlay() {
   let scoreMode = "decimal";
   let showGauge = true;
   let showLabel = true;
+  let showTitle = true;
   let plateFade = 0;
   let playOnOverlay = true;
   const rawPort = query.get("port");
@@ -984,6 +991,7 @@ function startOverlay() {
   const save = () => saveStore(storeKey, settings);
   const client = new VtsClient(OVERLAY_PLUGIN);
   const scoreEl = document.getElementById("ov-score");
+  const titleEl = document.getElementById("ov-title");
   const labelEl = document.getElementById("ov-label");
   const gaugeEl = document.getElementById("ov-gauge-fill");
 
@@ -1051,6 +1059,8 @@ function startOverlay() {
     if (SCORE_MODES[modeIndex]) scoreMode = SCORE_MODES[modeIndex];
     if (Number.isFinite(values.PostureGauge)) showGauge = values.PostureGauge >= 0.5;
     if (Number.isFinite(values.PostureLabel)) showLabel = values.PostureLabel >= 0.5;
+    if (Number.isFinite(values.PostureTitle)) showTitle = values.PostureTitle >= 0.5;
+    titleEl.hidden = !showTitle;
   }
 
   function rememberSettings(values) {
@@ -1080,6 +1090,7 @@ function startOverlay() {
     settings.scoreMode = scoreMode;
     settings.showGauge = showGauge;
     settings.showLabel = showLabel;
+    settings.showTitle = showTitle;
     settings.plateFade = plateFade;
     settings.configured = true;
     save();
@@ -1096,6 +1107,8 @@ function startOverlay() {
     scoreMode = settings.scoreMode;
     showGauge = settings.showGauge;
     showLabel = settings.showLabel;
+    showTitle = settings.showTitle;
+    titleEl.hidden = !showTitle;
     document.documentElement.dataset.theme = settings.theme;
     document.documentElement.dataset.plate = settings.overlayStyle === "dark" ? "dark" : "light";
     plateFade = settings.plateFade;
