@@ -14,6 +14,17 @@ const DEFAULT_WEIGHTS = {
 const PARAM_NAME = "PostureScore";
 const PLUGIN_DEVELOPER = "Developer";
 
+const ALERTS = [
+  "警告音　サイレン.mp3",
+  "ビシッとツッコミ3.mp3",
+  "ビシッとツッコミ1.mp3",
+  "クイズ不正解2.mp3",
+  "クイズ不正解1.mp3",
+  "エアーホーン.mp3",
+  "「アウト」.mp3",
+  "警告音2.mp3",
+];
+
 const CONTROL_PLUGIN = "VTS GoodPosture";
 const OVERLAY_PLUGIN = "VTS GoodPosture Overlay";
 
@@ -46,7 +57,7 @@ function defaultSettings() {
     duration: 3,
     cooldown: 10,
     volume: 0.5,
-    sound: "beep",
+    sound: ALERTS[0],
     theme: "dark",
   };
 }
@@ -121,7 +132,7 @@ function loadStore(key) {
     settings.duration = clamp(saved.duration, 0, 3600, settings.duration);
     settings.cooldown = clamp(saved.cooldown, 0, 3600, settings.cooldown);
     settings.volume = clamp(saved.volume, 0, 1, settings.volume);
-    if (["beep", "double", "triple", "siren", "buzz"].includes(saved.sound)) settings.sound = saved.sound;
+    if (ALERTS.includes(saved.sound)) settings.sound = saved.sound;
     settings.theme = saved.theme === "light" ? "light" : "dark";
   } catch (_) {
     /* 壊れた保存値は初期値のまま使う */
@@ -319,66 +330,20 @@ function readListedParams(message) {
   return values;
 }
 
-let alertAudio = null;
+let alertPlayer = null;
 
 function playAlert(kind, level) {
-  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContextClass) return;
-  if (!alertAudio) alertAudio = new AudioContextClass();
-  const run = () => scheduleAlert(kind, Math.max(level, 0.05));
-  if (alertAudio.state === "running") run();
-  else alertAudio.resume().then(run);
-}
-
-function scheduleAlert(kind, gain) {
-  if (kind === "double") {
-    tone(880, 0, 0.14, gain, "square");
-    tone(660, 0.16, 0.32, gain, "square");
-  } else if (kind === "triple") {
-    tone(988, 0, 0.1, gain, "square");
-    tone(988, 0.14, 0.24, gain, "square");
-    tone(988, 0.28, 0.42, gain, "square");
-  } else if (kind === "siren") {
-    sweep(520, 1400, 0.45, gain);
-  } else if (kind === "buzz") {
-    tone(180, 0, 0.2, gain, "sawtooth");
-    tone(140, 0.24, 0.5, gain, "sawtooth");
-  } else {
-    tone(880, 0, 0.3, gain, "square");
-  }
-}
-
-function tone(frequency, start, stop, gain, type) {
-  const osc = alertAudio.createOscillator();
-  const amp = alertAudio.createGain();
-  const begin = alertAudio.currentTime + start;
-  const end = Math.max(begin + 0.05, alertAudio.currentTime + stop);
-  osc.type = type;
-  osc.frequency.setValueAtTime(frequency, begin);
-  amp.gain.setValueAtTime(0.0001, begin);
-  amp.gain.exponentialRampToValueAtTime(gain, begin + 0.02);
-  amp.gain.exponentialRampToValueAtTime(0.0001, end);
-  osc.connect(amp);
-  amp.connect(alertAudio.destination);
-  osc.start(begin);
-  osc.stop(end + 0.02);
-}
-
-function sweep(from, to, seconds, gain) {
-  const osc = alertAudio.createOscillator();
-  const amp = alertAudio.createGain();
-  const begin = alertAudio.currentTime;
-  const end = begin + seconds;
-  osc.type = "sawtooth";
-  osc.frequency.setValueAtTime(from, begin);
-  osc.frequency.linearRampToValueAtTime(to, end);
-  amp.gain.setValueAtTime(0.0001, begin);
-  amp.gain.exponentialRampToValueAtTime(gain, begin + 0.02);
-  amp.gain.exponentialRampToValueAtTime(0.0001, end);
-  osc.connect(amp);
-  amp.connect(alertAudio.destination);
-  osc.start(begin);
-  osc.stop(end + 0.02);
+  const file = ALERTS.includes(kind) ? kind : ALERTS[0];
+  if (!alertPlayer) alertPlayer = new Audio();
+  alertPlayer.pause();
+  alertPlayer.src = new URL(`sounds/${encodeURIComponent(file)}`, document.baseURI).href;
+  alertPlayer.volume = Math.min(1, Math.max(0, Number(level) || 0));
+  const start = () => {
+    alertPlayer.currentTime = 0;
+    alertPlayer.play().catch(() => {});
+  };
+  if (alertPlayer.readyState >= 2) start();
+  else alertPlayer.addEventListener("canplay", start, { once: true });
 }
 
 function boot() {
@@ -815,7 +780,7 @@ function startOverlay() {
   const duration = clamp(query.get("duration"), 0, 3600, 3);
   const cooldown = clamp(query.get("cooldown"), 0, 3600, 10);
   const volume = clamp(query.get("volume"), 0, 1, 0.5);
-  const sound = ["beep", "double", "triple", "siren", "buzz"].includes(query.get("sound")) ? query.get("sound") : "beep";
+  const sound = ALERTS.includes(query.get("sound")) ? query.get("sound") : ALERTS[0];
   const port = clamp(query.get("port"), 1, 65535, 8001);
   const host = (query.get("host") || "127.0.0.1").trim();
 

@@ -159,6 +159,12 @@ input[type="range"] {
   accent-color: var(--accent);
 }
 
+.credit {
+  margin-top: 3rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .params-block {
   margin-top: 2.5rem;
   padding-top: 1.5rem;
@@ -278,7 +284,8 @@ input[type="range"] {
 }
 
 select {
-  width: 7rem;
+  width: auto;
+  max-width: 100%;
   padding: 0.35rem 0;
   border: 0;
   border-bottom: 1px solid var(--line);
