@@ -40,12 +40,13 @@ body {
 
 .mast {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 1.5rem 2rem;
+  gap: 1rem 2rem;
   padding-bottom: 1.5rem;
   border-bottom: 1px solid var(--line);
+  container-type: inline-size;
 }
 
 .mast > div:first-child {
@@ -74,6 +75,18 @@ body {
   font-size: 1.75rem;
   font-weight: 500;
   line-height: 1.2;
+  white-space: nowrap;
+}
+
+@container (max-width: 58rem) {
+  .mast > div:first-child,
+  .mast-actions {
+    flex: 1 1 100%;
+  }
+
+  .mast-actions {
+    justify-content: flex-end;
+  }
 }
 
 .score-line {
