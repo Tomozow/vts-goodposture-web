@@ -22,8 +22,13 @@ const ALERT_PARAM_SPECS = [
   { parameterName: "PostureAlertVolume", explanation: "Alert volume from 0 to 1", min: 0, max: 1, defaultValue: 0.5 },
   { parameterName: "PostureTheme", explanation: "0 for dark theme, 1 for light theme", min: 0, max: 1, defaultValue: 0 },
   { parameterName: "PostureOverlayStyle", explanation: "0 clear, 1 white background, 2 black background", min: 0, max: 2, defaultValue: 0 },
+  { parameterName: "PostureScoreMode", explanation: "0 decimals, 1 integer, 2 hidden", min: 0, max: 2, defaultValue: 0 },
+  { parameterName: "PostureGauge", explanation: "1 when the overlay gauge is shown", min: 0, max: 1, defaultValue: 1 },
+  { parameterName: "PostureLabel", explanation: "1 when the overlay status word is shown", min: 0, max: 1, defaultValue: 1 },
+  { parameterName: "PostureVisible", explanation: "1 while the control tab is visible", min: 0, max: 1, defaultValue: 0 },
 ];
 const OVERLAY_PLATES = ["clear", "light", "dark"];
+const SCORE_MODES = ["decimal", "integer", "none"];
 
 const ALERTS = [
   "警告音　サイレン.mp3",
@@ -71,6 +76,9 @@ function defaultSettings() {
     sound: ALERTS[0],
     theme: "dark",
     overlayStyle: "clear",
+    scoreMode: "decimal",
+    showGauge: true,
+    showLabel: true,
   };
 }
 
@@ -147,6 +155,9 @@ function loadStore(key) {
     if (ALERTS.includes(saved.sound)) settings.sound = saved.sound;
     settings.theme = saved.theme === "light" ? "light" : "dark";
     if (OVERLAY_PLATES.includes(saved.overlayStyle)) settings.overlayStyle = saved.overlayStyle;
+    if (SCORE_MODES.includes(saved.scoreMode)) settings.scoreMode = saved.scoreMode;
+    if (typeof saved.showGauge === "boolean") settings.showGauge = saved.showGauge;
+    if (typeof saved.showLabel === "boolean") settings.showLabel = saved.showLabel;
   } catch (_) {
     /* 壊れた保存値は初期値のまま使う */
   }
@@ -389,19 +400,37 @@ function startControl() {
   let session = 0;
 
   hostInput.value = settings.host;
+  hostInput.addEventListener("input", () => {
+    const cleaned = hostInput.value.replace(/[^A-Za-z0-9.-]/g, "");
+    if (cleaned !== hostInput.value) hostInput.value = cleaned;
+  });
   portInput.value = String(settings.port);
   document.getElementById("auto-start").checked = settings.autoStart;
   document.getElementById("polling").value = String(settings.pollingMs);
   alphaInput.value = String(settings.alpha);
   alphaVal.textContent = settings.alpha.toFixed(2);
   document.getElementById("alert").checked = settings.alert;
+  const themeIcons = {
+    light: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`,
+    dark: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 14.5A8.5 8.5 0 1 1 9.5 3 7 7 0 0 0 21 14.5z"/></svg>`,
+  };
+  function applyTheme() {
+    document.documentElement.dataset.theme = settings.theme;
+    const next = settings.theme === "light" ? "dark" : "light";
+    themeButton.innerHTML = themeIcons[next];
+    themeButton.setAttribute("aria-label", next === "dark" ? "ダーク" : "ライト");
+  }
   applyTheme();
   document.getElementById("threshold").value = String(settings.threshold);
   document.getElementById("duration").value = String(settings.duration);
   document.getElementById("cooldown").value = String(settings.cooldown);
   document.getElementById("volume").value = String(settings.volume);
+  document.getElementById("volume-val").textContent = Number(settings.volume).toFixed(1);
   document.getElementById("sound").value = settings.sound;
   document.getElementById("overlay-style").value = settings.overlayStyle;
+  document.getElementById("score-mode").value = settings.scoreMode;
+  document.getElementById("show-gauge").checked = settings.showGauge;
+  document.getElementById("show-label").checked = settings.showLabel;
   buildParamCards();
   paintParamCards({});
   refreshOverlayUrl();
@@ -429,6 +458,10 @@ function startControl() {
     settings.sound = document.getElementById("sound").value;
     const plate = document.getElementById("overlay-style").value;
     settings.overlayStyle = OVERLAY_PLATES.includes(plate) ? plate : "clear";
+    const mode = document.getElementById("score-mode").value;
+    settings.scoreMode = SCORE_MODES.includes(mode) ? mode : "decimal";
+    settings.showGauge = document.getElementById("show-gauge").checked;
+    settings.showLabel = document.getElementById("show-label").checked;
     save();
     refreshOverlayUrl();
   }
@@ -452,24 +485,25 @@ function startControl() {
       { id: "PostureAlertVolume", value: settings.volume },
       { id: "PostureTheme", value: settings.theme === "light" ? 1 : 0 },
       { id: "PostureOverlayStyle", value: Math.max(0, OVERLAY_PLATES.indexOf(settings.overlayStyle)) },
+      { id: "PostureScoreMode", value: Math.max(0, SCORE_MODES.indexOf(settings.scoreMode)) },
+      { id: "PostureGauge", value: settings.showGauge ? 1 : 0 },
+      { id: "PostureLabel", value: settings.showLabel ? 1 : 0 },
+      { id: "PostureVisible", value: 1 },
     ];
     if (score != null) values.unshift({ id: PARAM_NAME, value: score });
     return values.map((item) => ({ ...item, weight: 1 }));
-  }
-
-  function applyTheme() {
-    document.documentElement.dataset.theme = settings.theme;
-    themeButton.textContent = settings.theme === "light" ? "ダーク" : "ライト";
   }
 
   function clearScore() {
     liveScore.textContent = "";
     liveScore.style.color = "";
     liveStatus.textContent = "";
+    liveScore.closest(".score-line").hidden = true;
   }
 
   function paintScore(value) {
     const look = scoreAppearance(value);
+    liveScore.closest(".score-line").hidden = false;
     liveScore.textContent = String(value);
     liveScore.style.color = look.color;
     liveStatus.textContent = look.label;
@@ -773,6 +807,7 @@ function startControl() {
     playAlert(settings.sound, settings.volume);
   });
 
+  overlayUrl.addEventListener("click", () => overlayUrl.select());
   document.getElementById("copy-url").addEventListener("click", async () => {
     readForm();
     const url = overlayUrl.value;
@@ -818,7 +853,12 @@ function startControl() {
     alphaVal.textContent = clamp(alphaInput.value, 0.01, 1, 0.1).toFixed(2);
   });
 
-  for (const id of ["host", "port", "auto-start", "polling", "alpha", "alert", "sound", "threshold", "duration", "cooldown", "volume", "overlay-style"]) {
+  const volumeInput = document.getElementById("volume");
+  volumeInput.addEventListener("input", () => {
+    document.getElementById("volume-val").textContent = clamp(volumeInput.value, 0, 1, 0.5).toFixed(1);
+  });
+
+  for (const id of ["host", "port", "auto-start", "polling", "alpha", "alert", "sound", "threshold", "duration", "cooldown", "volume", "overlay-style", "score-mode", "show-gauge", "show-label"]) {
     document.getElementById(id).addEventListener("change", readForm);
   }
 
@@ -834,6 +874,9 @@ function startOverlay() {
   let cooldown = 10;
   let volume = 0.5;
   let sound = ALERTS[0];
+  let scoreMode = "decimal";
+  let showGauge = true;
+  let showLabel = true;
   const rawPort = query.get("port");
   const port = rawPort == null || rawPort === "" ? 8001 : clamp(rawPort, 1, 65535, 8001);
   const host = (query.get("host") || "127.0.0.1").trim();
@@ -864,13 +907,17 @@ function startOverlay() {
   function showScore(score) {
     const look = scoreAppearance(score);
     scoreEl.classList.remove("is-status");
-    scoreEl.textContent = String(score);
-    scoreEl.style.color = look.color;
-    labelEl.textContent = look.label;
+    if (scoreMode === "none") scoreEl.textContent = "";
+    else if (scoreMode === "integer") scoreEl.textContent = String(Math.round(score));
+    else scoreEl.textContent = Number(score).toFixed(2);
+    scoreEl.style.color = scoreMode === "none" ? "" : look.color;
+    labelEl.textContent = showLabel ? look.label : "";
     labelEl.style.color = "";
-    gaugeEl.style.width = `${Math.max(0, Math.min(100, score))}%`;
-    gaugeEl.style.backgroundColor = look.color;
-    gaugeEl.parentElement.hidden = false;
+    gaugeEl.parentElement.hidden = !showGauge;
+    if (showGauge) {
+      gaugeEl.style.width = `${Math.max(0, Math.min(100, score))}%`;
+      gaugeEl.style.backgroundColor = look.color;
+    }
     maybeAlert(score);
   }
 
@@ -887,6 +934,10 @@ function startOverlay() {
     }
     const plateIndex = Math.round(Number(values.PostureOverlayStyle));
     document.documentElement.dataset.plate = OVERLAY_PLATES[plateIndex] || "clear";
+    const modeIndex = Math.round(Number(values.PostureScoreMode));
+    if (SCORE_MODES[modeIndex]) scoreMode = SCORE_MODES[modeIndex];
+    if (Number.isFinite(values.PostureGauge)) showGauge = values.PostureGauge >= 0.5;
+    if (Number.isFinite(values.PostureLabel)) showLabel = values.PostureLabel >= 0.5;
   }
 
   function maybeAlert(score) {
@@ -944,11 +995,17 @@ function startOverlay() {
     try {
       const listed = await client.request("InputParameterListRequest", {});
       const values = readListedParams(listed);
-      if (!values || !Number.isFinite(values[PARAM_NAME])) {
+      if (!values) {
         showStatus("スコアを受信していません");
       } else {
         applyRemoteSettings(values);
-        showScore(roundDigits(values[PARAM_NAME], 2));
+        if (Number.isFinite(values.PostureVisible) && values.PostureVisible < 0.5) {
+          showStatus("このタブを表示してください。");
+        } else if (!Number.isFinite(values[PARAM_NAME])) {
+          showStatus("スコアを受信していません");
+        } else {
+          showScore(roundDigits(values[PARAM_NAME], 2));
+        }
       }
     } catch (error) {
       showStatus(error.message || "スコアを受信できませんでした");
