@@ -40,7 +40,7 @@ body {
 
 .mast {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: space-between;
   align-items: flex-start;
   gap: 1.5rem 2rem;
@@ -48,11 +48,20 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
+.mast > div:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mast-actions {
+  flex: 0 0 auto;
+}
+
 .mast-lead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 0.35rem 1.25rem;
+  display: grid;
+  grid-template-columns: auto 13rem minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 1.25rem;
 }
 
 .kicker {
@@ -69,6 +78,18 @@ body {
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
   font-weight: 500;
+  visibility: hidden;
+  white-space: nowrap;
+}
+
+.score-line.is-live {
+  visibility: visible;
+}
+
+#live-score {
+  display: inline-block;
+  width: 4.4em;
+  text-align: right;
 }
 
 .score-line span {
@@ -91,6 +112,9 @@ body {
 
 .mast-lead .status {
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mast-actions,

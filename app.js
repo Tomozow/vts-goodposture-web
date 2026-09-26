@@ -498,13 +498,13 @@ function startControl() {
     liveScore.textContent = "";
     liveScore.style.color = "";
     liveStatus.textContent = "";
-    liveScore.closest(".score-line").hidden = true;
+    liveScore.closest(".score-line").classList.remove("is-live");
   }
 
   function paintScore(value) {
     const look = scoreAppearance(value);
-    liveScore.closest(".score-line").hidden = false;
-    liveScore.textContent = String(value);
+    liveScore.closest(".score-line").classList.add("is-live");
+    liveScore.textContent = Number(value).toFixed(2);
     liveScore.style.color = look.color;
     liveStatus.textContent = look.label;
     liveStatus.style.color = "";
