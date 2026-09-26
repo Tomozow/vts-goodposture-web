@@ -1000,7 +1000,7 @@ function startOverlay() {
       } else {
         applyRemoteSettings(values);
         if (Number.isFinite(values.PostureVisible) && values.PostureVisible < 0.5) {
-          showStatus("このタブを表示してください。");
+          showStatus("設定タブを表示してください。");
         } else if (!Number.isFinite(values[PARAM_NAME])) {
           showStatus("スコアを受信していません");
         } else {

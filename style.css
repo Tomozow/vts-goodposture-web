@@ -7,6 +7,7 @@
   --line: rgba(255, 255, 255, 0.16);
   --accent: #f4f4f2;
   --field: transparent;
+  --card: #1c1c1c;
 }
 
 [data-theme="light"] {
@@ -17,6 +18,7 @@
   --line: rgba(0, 0, 0, 0.16);
   --accent: #171717;
   --field: transparent;
+  --card: #fff;
 }
 
 * {
@@ -146,12 +148,31 @@ button:hover {
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
-  gap: 2rem 2.5rem;
-  padding-top: 2rem;
+  gap: 1rem;
+  padding-top: 1.25rem;
 }
 
 section {
   min-width: 0;
+}
+
+.grid > section {
+  display: flex;
+  flex-direction: column;
+  padding: 1.15rem 1.2rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--card);
+}
+
+.grid > section > .row {
+  margin-top: auto;
+  padding-top: 0.75rem;
+}
+
+.grid > section > .row button {
+  padding-top: 0.9rem;
+  padding-bottom: 0.9rem;
 }
 
 h2 {
@@ -232,9 +253,11 @@ input[type="range"] {
 }
 
 .params-block {
-  margin-top: 2.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--line);
+  margin-top: 1rem;
+  padding: 1.15rem 1.2rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--card);
 }
 
 .section-head {
@@ -243,6 +266,8 @@ input[type="range"] {
   justify-content: space-between;
   align-items: center;
   gap: 0.75rem 1rem;
+  padding-top: 0.35rem;
+  padding-bottom: 0.85rem;
 }
 
 .section-head h2 {
@@ -251,7 +276,7 @@ input[type="range"] {
 
 #param-cards {
   display: grid;
-  gap: 2.5rem;
+  gap: 1rem;
   margin-top: 1rem;
 }
 
@@ -270,6 +295,10 @@ input[type="range"] {
 .axis-section {
   display: grid;
   gap: 1.25rem;
+  padding: 1rem 1rem 1.15rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--bg);
 }
 
 .param-card {
