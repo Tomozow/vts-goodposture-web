@@ -1090,12 +1090,12 @@ function startOverlay() {
         showStatus("スコアを受信していません");
       } else {
         const controlOpen = Number.isFinite(values.PostureVisible) && values.PostureVisible >= 0.5;
-        if (controlOpen && Number.isFinite(values[PARAM_NAME])) {
+        if (controlOpen) {
           ownScore = null;
           rememberSettings(values);
-          showScore(roundDigits(values[PARAM_NAME], 2));
-        } else {
-          if (controlOpen) rememberSettings(values);
+          if (!Number.isFinite(values[PARAM_NAME])) showStatus("スコアを受信していません");
+          else showScore(roundDigits(values[PARAM_NAME], 2));
+        } else if (settings.configured) {
           useStoredSettings();
           const faceReady = PARAMS.every((name) => Number.isFinite(values[name]));
           if (!faceReady) {
@@ -1105,6 +1105,8 @@ function startOverlay() {
             ownScore = ownScore == null ? raw : applyEma(ownScore, raw, settings.alpha);
             showScore(ownScore);
           }
+        } else {
+          showStatus("設定タブを表示してください。");
         }
       }
     } catch (error) {
