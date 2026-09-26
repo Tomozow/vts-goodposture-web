@@ -21,7 +21,9 @@ const ALERT_PARAM_SPECS = [
   { parameterName: "PostureAlertCooldown", explanation: "Seconds between alert sounds", min: 0, max: 3600, defaultValue: 10 },
   { parameterName: "PostureAlertVolume", explanation: "Alert volume from 0 to 1", min: 0, max: 1, defaultValue: 0.5 },
   { parameterName: "PostureTheme", explanation: "0 for dark theme, 1 for light theme", min: 0, max: 1, defaultValue: 0 },
+  { parameterName: "PostureOverlayStyle", explanation: "0 clear, 1 white background, 2 black background", min: 0, max: 2, defaultValue: 0 },
 ];
+const OVERLAY_PLATES = ["clear", "light", "dark"];
 
 const ALERTS = [
   "警告音　サイレン.mp3",
@@ -68,6 +70,7 @@ function defaultSettings() {
     volume: 0.5,
     sound: ALERTS[0],
     theme: "dark",
+    overlayStyle: "clear",
   };
 }
 
@@ -143,6 +146,7 @@ function loadStore(key) {
     settings.volume = clamp(saved.volume, 0, 1, settings.volume);
     if (ALERTS.includes(saved.sound)) settings.sound = saved.sound;
     settings.theme = saved.theme === "light" ? "light" : "dark";
+    if (OVERLAY_PLATES.includes(saved.overlayStyle)) settings.overlayStyle = saved.overlayStyle;
   } catch (_) {
     /* 壊れた保存値は初期値のまま使う */
   }
@@ -242,10 +246,11 @@ class VtsClient {
           reject(error);
         },
       };
+      const waitMs = messageType === "AuthenticationTokenRequest" ? 180000 : 5000;
       item.timer = setTimeout(() => {
         item.fail(new Error("VTube Studio の応答がタイムアウトしました"));
-        if (this.ws) this.ws.close();
-      }, 5000);
+        if (messageType !== "AuthenticationTokenRequest" && this.ws) this.ws.close();
+      }, waitMs);
       this.queue.push(item);
       this.pump();
     });
@@ -396,6 +401,7 @@ function startControl() {
   document.getElementById("cooldown").value = String(settings.cooldown);
   document.getElementById("volume").value = String(settings.volume);
   document.getElementById("sound").value = settings.sound;
+  document.getElementById("overlay-style").value = settings.overlayStyle;
   buildParamCards();
   paintParamCards({});
   refreshOverlayUrl();
@@ -421,6 +427,8 @@ function startControl() {
     settings.cooldown = clamp(document.getElementById("cooldown").value, 0, 3600, 10);
     settings.volume = clamp(document.getElementById("volume").value, 0, 1, 0.5);
     settings.sound = document.getElementById("sound").value;
+    const plate = document.getElementById("overlay-style").value;
+    settings.overlayStyle = OVERLAY_PLATES.includes(plate) ? plate : "clear";
     save();
     refreshOverlayUrl();
   }
@@ -443,6 +451,7 @@ function startControl() {
       { id: "PostureAlertCooldown", value: settings.cooldown },
       { id: "PostureAlertVolume", value: settings.volume },
       { id: "PostureTheme", value: settings.theme === "light" ? 1 : 0 },
+      { id: "PostureOverlayStyle", value: Math.max(0, OVERLAY_PLATES.indexOf(settings.overlayStyle)) },
     ];
     if (score != null) values.unshift({ id: PARAM_NAME, value: score });
     return values.map((item) => ({ ...item, weight: 1 }));
@@ -474,18 +483,17 @@ function startControl() {
     return Math.max(0, Math.min(100, ((value - min) / span) * 100));
   }
 
-  function influenceText(weight) {
-    if (weight < 1) return "この軸が範囲外でも、スコアはあまり下がらない";
-    if (weight < 2.5) return "この軸が範囲外だと、スコアが下がる";
-    return "この軸が範囲外だと、スコアが大きく下がる";
-  }
-
   function buildParamCards() {
     paramCards.replaceChildren();
+    const axisNotes = {
+      X: "左右の向きと、左右の位置です。",
+      Y: "上下の向きと、上下の位置です。",
+      Z: "横への傾きと、前後の位置です。",
+    };
     for (const axis of ["X", "Y", "Z"]) {
       const section = document.createElement("section");
       section.className = "axis-section";
-      section.innerHTML = `<h3>${axis}</h3>`;
+      section.innerHTML = `<h3>Face ${axis}</h3><p class="axis-note">${axisNotes[axis]}</p>`;
       for (const kind of ["Angle", "Position"]) {
         const name = `Face${kind}${axis}`;
         const card = document.createElement("div");
@@ -502,17 +510,16 @@ function startControl() {
               </div>
               <div class="base-dot" id="base-${name}"><span id="base-label-${name}"></span></div>
               <div class="live-dot" id="dot-${name}"></div>
-              <div class="handle" data-name="${name}" data-side="min"><span>下限</span></div>
-              <div class="handle" data-name="${name}" data-side="max"><span>上限</span></div>
+              <div class="handle" data-name="${name}" data-side="min" role="slider" aria-label="下限"></div>
+              <div class="handle" data-name="${name}" data-side="max" role="slider" aria-label="上限"></div>
             </div>
             <input class="axis view-max" data-name="${name}" type="number" step="0.1" aria-label="表示最大">
           </div>
           <div class="influence">
-            <span>小さい</span>
-            <input class="weight" data-name="${name}" type="range" min="0.1" max="5" step="0.1" aria-label="範囲外のときの影響">
-            <span>大きい</span>
+            <span class="influence-label">重要度</span>
+            <input class="weight" data-name="${name}" type="range" min="0.1" max="5" step="0.1" aria-label="重要度">
+            <output class="weight-val" id="weight-val-${name}"></output>
           </div>
-          <p class="influence-note" id="influence-${name}"></p>
         `;
         section.append(card);
       }
@@ -550,7 +557,7 @@ function startControl() {
     paramCards.querySelectorAll(".weight").forEach((input) => {
       input.addEventListener("input", () => {
         const name = input.dataset.name;
-        document.getElementById(`influence-${name}`).textContent = influenceText(clamp(input.value, 0.1, 5, 1));
+        document.getElementById(`weight-val-${name}`).textContent = clamp(input.value, 0.1, 5, 1).toFixed(1);
       });
     });
     paramCards.querySelectorAll(".view-min, .view-max, .weight").forEach((input) => {
@@ -592,7 +599,7 @@ function startControl() {
       if (document.activeElement !== viewMin) viewMin.value = String(settings.displayMin[name]);
       if (document.activeElement !== viewMax) viewMax.value = String(settings.displayMax[name]);
       if (document.activeElement !== weight) weight.value = String(settings.weights[name]);
-      document.getElementById(`influence-${name}`).textContent = influenceText(settings.weights[name]);
+      document.getElementById(`weight-val-${name}`).textContent = Number(settings.weights[name]).toFixed(1);
       if (values && values[name] != null && !Number.isNaN(values[name])) {
         document.getElementById(`dot-${name}`).style.left = `${percent(name, values[name])}%`;
         document.getElementById(`live-${name}`).textContent = `現在 ${roundDigits(values[name], 3)}`;
@@ -811,7 +818,7 @@ function startControl() {
     alphaVal.textContent = clamp(alphaInput.value, 0.01, 1, 0.1).toFixed(2);
   });
 
-  for (const id of ["host", "port", "auto-start", "polling", "alpha", "alert", "sound", "threshold", "duration", "cooldown", "volume"]) {
+  for (const id of ["host", "port", "auto-start", "polling", "alpha", "alert", "sound", "threshold", "duration", "cooldown", "volume", "overlay-style"]) {
     document.getElementById(id).addEventListener("change", readForm);
   }
 
@@ -839,27 +846,24 @@ function startOverlay() {
   const scoreEl = document.getElementById("ov-score");
   const labelEl = document.getElementById("ov-label");
   const gaugeEl = document.getElementById("ov-gauge-fill");
-  const reconnectButton = document.getElementById("ov-reconnect");
 
   let badSince = null;
   let lastSound = 0;
   let reconnectTimer = 0;
   let session = 0;
-  let connecting = false;
 
-  function showMissing() {
-    scoreEl.textContent = "";
+  function showStatus(text) {
+    scoreEl.textContent = text;
+    scoreEl.classList.add("is-status");
     scoreEl.style.color = "";
-    labelEl.textContent = "未接続";
+    labelEl.textContent = "";
     gaugeEl.style.width = "0";
     gaugeEl.parentElement.hidden = true;
-    reconnectButton.hidden = false;
-    reconnectButton.disabled = connecting;
-    reconnectButton.textContent = connecting ? "接続しています" : "再接続";
   }
 
   function showScore(score) {
     const look = scoreAppearance(score);
+    scoreEl.classList.remove("is-status");
     scoreEl.textContent = String(score);
     scoreEl.style.color = look.color;
     labelEl.textContent = look.label;
@@ -867,7 +871,6 @@ function startOverlay() {
     gaugeEl.style.width = `${Math.max(0, Math.min(100, score))}%`;
     gaugeEl.style.backgroundColor = look.color;
     gaugeEl.parentElement.hidden = false;
-    reconnectButton.hidden = true;
     maybeAlert(score);
   }
 
@@ -882,6 +885,8 @@ function startOverlay() {
     if (Number.isFinite(values.PostureTheme)) {
       document.documentElement.dataset.theme = values.PostureTheme >= 0.5 ? "light" : "dark";
     }
+    const plateIndex = Math.round(Number(values.PostureOverlayStyle));
+    document.documentElement.dataset.plate = OVERLAY_PLATES[plateIndex] || "clear";
   }
 
   function maybeAlert(score) {
@@ -909,8 +914,7 @@ function startOverlay() {
   async function openSession() {
     window.clearTimeout(reconnectTimer);
     const current = ++session;
-    connecting = true;
-    showMissing();
+    showStatus("接続しています");
     if (client.ws) {
       client.close();
       client.closedByUser = false;
@@ -920,25 +924,18 @@ function startOverlay() {
       if (current !== session) return;
       await client.authenticate(settings, save);
       if (current !== session) return;
-      connecting = false;
       poll();
-    } catch (_) {
+    } catch (error) {
       if (current !== session) return;
-      connecting = false;
-      showMissing();
-      scheduleReconnect();
+      const text = error.message || "接続できませんでした";
+      const pending = text.includes("(51)") || /ongoing/i.test(text);
+      showStatus(pending ? "VTube Studio に許可画面が出ています。そちらを押してください" : text);
+      if (!pending) scheduleReconnect();
     }
   }
 
-  reconnectButton.addEventListener("click", () => {
-    if (connecting) return;
-    settings.token = "";
-    save();
-    openSession();
-  });
-
-  client.onClose = () => {
-    showMissing();
+  client.onClose = (_code, reason) => {
+    showStatus(reason || "切断されました");
     scheduleReconnect();
   };
 
@@ -948,19 +945,19 @@ function startOverlay() {
       const listed = await client.request("InputParameterListRequest", {});
       const values = readListedParams(listed);
       if (!values || !Number.isFinite(values[PARAM_NAME])) {
-        showMissing();
+        showStatus("スコアを受信していません");
       } else {
         applyRemoteSettings(values);
         showScore(roundDigits(values[PARAM_NAME], 2));
       }
-    } catch (_) {
-      showMissing();
+    } catch (error) {
+      showStatus(error.message || "スコアを受信できませんでした");
       return;
     }
     window.setTimeout(poll, 200);
   }
 
-  showMissing();
+  showStatus("接続しています");
   openSession();
 }
 

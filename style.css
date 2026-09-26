@@ -47,10 +47,11 @@ body {
 }
 
 .kicker {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
+  margin: 0 0 0.85rem;
+  color: var(--fg);
+  font-size: 1.75rem;
+  font-weight: 500;
+  line-height: 1.2;
 }
 
 .score-line {
@@ -102,6 +103,10 @@ button.primary {
 
 button:hover {
   background: var(--line);
+}
+
+.stay-open {
+  margin: 0.75rem 0 0;
 }
 
 .grid {
@@ -161,6 +166,16 @@ input[type="range"] {
 
 .credit {
   margin-top: 3rem;
+}
+
+.credit h2 {
+  margin: 0 0 0.45rem;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.credit p {
+  margin: 0;
   color: var(--muted);
   font-size: 0.8rem;
 }
@@ -190,9 +205,15 @@ input[type="range"] {
 }
 
 .axis-section h3 {
-  margin: 0 0 0.75rem;
+  margin: 0;
   font-size: 1.35rem;
   font-weight: 500;
+}
+
+.axis-note {
+  margin: 0.2rem 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 .axis-section {
@@ -249,7 +270,7 @@ input[type="range"] {
 .track {
   position: relative;
   flex: 1 1 auto;
-  height: 72px;
+  height: 48px;
   min-width: 12rem;
 }
 
@@ -276,7 +297,7 @@ input[type="range"] {
 
 .range-num {
   position: absolute;
-  top: 10px;
+  top: 18px;
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
@@ -323,17 +344,6 @@ select {
   z-index: 1;
 }
 
-.handle span {
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 0.7rem;
-  color: var(--muted);
-  white-space: nowrap;
-  pointer-events: none;
-}
-
 .base-dot {
   width: 5px;
   height: 5px;
@@ -373,18 +383,55 @@ select {
   flex: 1 1 auto;
   width: auto;
   max-width: none;
+  height: 1.4rem;
+  accent-color: var(--fg);
 }
 
-.influence-note {
-  margin: 0.35rem 0 0;
+.influence-label {
+  flex: 0 0 auto;
   color: var(--fg);
-  font-size: 0.9rem;
+}
+
+.weight-val {
+  min-width: 2.4rem;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 html.overlay,
 html.overlay body {
   background: transparent;
 }
+
+html.overlay[data-plate="light"],
+html.overlay[data-plate="light"] body {
+  background: #fff;
+  color: #171717;
+}
+
+html.overlay[data-plate="dark"],
+html.overlay[data-plate="dark"] body {
+  background: #111;
+  color: #fff;
+}
+
+html.overlay[data-plate="light"] .ov-score,
+html.overlay[data-plate="light"] .ov-label,
+html.overlay[data-plate="dark"] .ov-score,
+html.overlay[data-plate="dark"] .ov-label {
+  text-shadow: none;
+}
+
+html.overlay[data-plate="light"] .ov-label {
+  color: #171717;
+}
+
+html.overlay[data-plate="dark"] .ov-label,
+html.overlay[data-plate="clear"] .ov-label {
+  color: #fff;
+}
+
 
 html.overlay #control {
   display: none;
@@ -413,30 +460,19 @@ html:not(.overlay) #overlay {
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
 }
 
+.ov-score.is-status {
+  max-width: 36rem;
+  font-size: 0.95rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
 .ov-label {
   margin: 0.35rem 0 0;
   font-size: clamp(1rem, 3vw, 1.4rem);
   font-weight: 500;
   color: var(--fg);
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
-}
-
-.ov-reconnect {
-  margin-top: 1rem;
-  padding: 0.45rem 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.45);
-  color: #fff;
-  font: inherit;
-  font-size: 1rem;
-  cursor: pointer;
-  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
-}
-
-.ov-reconnect:disabled {
-  opacity: 0.6;
-  cursor: default;
 }
 
 .ov-gauge {

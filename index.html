@@ -25,25 +25,25 @@
   <main id="control">
     <header class="mast">
       <div>
-        <p class="kicker">姿勢チェッカー</p>
+        <h1 class="kicker">姿勢チェッカー</h1>
         <p class="score-line"><strong id="live-score">100</strong> <span id="live-status">良好</span></p>
         <p id="status" class="status">未接続</p>
-        <p id="hidden-warn" class="warn" hidden>タブが隠れているためスコアは 100 に戻る</p>
+        <p id="hidden-warn" class="warn" hidden>このタブを表示してください。</p>
       </div>
       <div class="mast-actions">
         <button id="connect" class="primary" type="button">接続</button>
         <button id="disconnect" type="button">切断</button>
         <button id="start" class="primary" type="button">監視開始</button>
         <button id="stop" type="button">監視停止</button>
-        <button id="calibrate" type="button">今の姿勢を基準にする</button>
         <button id="theme" type="button">ライト</button>
       </div>
     </header>
+    <p class="hint stay-open">配信中は、このタブを開いたままにしてください。</p>
 
     <div class="grid">
       <section>
         <h2>接続</h2>
-        <p class="hint">既定は 127.0.0.1。Python 版とは同時に動かさない。</p>
+        <p class="hint">VTube Studio で API を有効にしてから「接続」を押してください。初回は、VTube Studio に表示される許可を押してください。</p>
         <label>ホスト
           <input id="host" type="text" value="127.0.0.1">
         </label>
@@ -62,7 +62,7 @@
           <input id="alpha" type="range" min="0.01" max="1" step="0.01" value="0.1">
         </label>
         <p id="alpha-val" class="hint">0.10</p>
-        <p class="hint">小さいほどスコアの動きがゆるやか。1に近いほど、今の顔の向きにすぐ追従する。</p>
+        <p class="hint">小さいほど、スコアの動きはゆるやかになります。1 に近いほど、今の顔の向きにすぐ追従します。</p>
       </section>
 
       <section>
@@ -98,8 +98,15 @@
       </section>
 
       <section>
-        <h2>OBS</h2>
-        <p class="hint">音や閾値を変えても、この URL はそのまま使えます。ポートを 8001 以外にしたときだけ差し替えてください。</p>
+        <h2>OBSオーバーレイ</h2>
+        <p class="hint">OBS にスコアを出すときは、この URL をブラウザソースへ貼ってください。</p>
+        <label>表示
+          <select id="overlay-style">
+            <option value="clear">背景なし</option>
+            <option value="light">白地に黒</option>
+            <option value="dark">黒地に白</option>
+          </select>
+        </label>
         <input id="overlay-url" type="text" readonly>
         <div class="row">
           <button id="copy-url" type="button">オーバーレイ URL をコピー</button>
@@ -111,20 +118,23 @@
       <div class="section-head">
         <h2>パラメータ</h2>
         <div class="row">
+          <button id="calibrate" type="button">今の姿勢を基準にする</button>
           <button id="save-offsets" type="button">現在の許容値を保存</button>
           <button id="reset-offsets" type="button">許容値を初期値に戻す</button>
         </div>
       </div>
-      <p class="hint">VTube Studio の顔パラメータで判定する。両端のツマミが許容範囲。その外に出たとき、影響が大きい軸ほどスコアが下がる。</p>
+      <p class="hint">VTube Studio の顔パラメータで判定します。両端のツマミが許容範囲です。その外に出たとき、重要度が大きい軸ほどスコアが下がります。</p>
       <div id="param-cards"></div>
     </section>
-    <footer class="credit">Otologic様から一部効果音をお借りさせていただいております</footer>
+    <footer class="credit">
+      <h2>クレジット</h2>
+      <p>Otologic様から一部効果音をお借りさせていただいております</p>
+    </footer>
   </main>
 
   <main id="overlay">
     <p id="ov-score" class="ov-score">未接続</p>
     <p id="ov-label" class="ov-label"></p>
-    <button id="ov-reconnect" class="ov-reconnect" type="button">再接続</button>
     <div class="ov-gauge" aria-hidden="true"><div id="ov-gauge-fill"></div></div>
   </main>
 
