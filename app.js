@@ -474,31 +474,49 @@ function startControl() {
     return Math.max(0, Math.min(100, ((value - min) / span) * 100));
   }
 
+  function influenceText(weight) {
+    if (weight < 1) return "この軸が範囲外でも、スコアはあまり下がらない";
+    if (weight < 2.5) return "この軸が範囲外だと、スコアが下がる";
+    return "この軸が範囲外だと、スコアが大きく下がる";
+  }
+
   function buildParamCards() {
     paramCards.replaceChildren();
-    for (const name of PARAMS) {
-      const card = document.createElement("div");
-      card.className = "param-card";
-      card.innerHTML = `
-        <div class="param-head"><strong>${name}</strong><span id="live-${name}">現在 —</span></div>
-        <div class="track-wrap">
-          <input class="axis view-min" data-name="${name}" type="number" step="0.1" aria-label="表示最小">
-          <div class="track" data-name="${name}">
-            <div class="track-line"></div>
-            <div class="track-range" id="range-${name}">
-            <span class="range-num range-min" id="min-label-${name}"></span>
-            <span class="range-num range-max" id="max-label-${name}"></span>
+    for (const axis of ["X", "Y", "Z"]) {
+      const section = document.createElement("section");
+      section.className = "axis-section";
+      section.innerHTML = `<h3>${axis}</h3>`;
+      for (const kind of ["Angle", "Position"]) {
+        const name = `Face${kind}${axis}`;
+        const card = document.createElement("div");
+        card.className = "param-card";
+        card.innerHTML = `
+          <div class="param-head"><strong>${kind === "Angle" ? "角度" : "位置"}</strong><span id="live-${name}">現在 —</span></div>
+          <div class="track-wrap">
+            <input class="axis view-min" data-name="${name}" type="number" step="0.1" aria-label="表示最小">
+            <div class="track" data-name="${name}">
+              <div class="track-line"></div>
+              <div class="track-range" id="range-${name}">
+                <span class="range-num range-min" id="min-label-${name}"></span>
+                <span class="range-num range-max" id="max-label-${name}"></span>
+              </div>
+              <div class="base-dot" id="base-${name}"><span id="base-label-${name}"></span></div>
+              <div class="live-dot" id="dot-${name}"></div>
+              <div class="handle" data-name="${name}" data-side="min"><span>下限</span></div>
+              <div class="handle" data-name="${name}" data-side="max"><span>上限</span></div>
+            </div>
+            <input class="axis view-max" data-name="${name}" type="number" step="0.1" aria-label="表示最大">
           </div>
-            <div class="base-dot" id="base-${name}"><span id="base-label-${name}"></span></div>
-            <div class="live-dot" id="dot-${name}"></div>
-            <div class="handle" data-name="${name}" data-side="min"></div>
-            <div class="handle" data-name="${name}" data-side="max"></div>
+          <div class="influence">
+            <span>小さい</span>
+            <input class="weight" data-name="${name}" type="range" min="0.1" max="5" step="0.1" aria-label="範囲外のときの影響">
+            <span>大きい</span>
           </div>
-          <input class="axis view-max" data-name="${name}" type="number" step="0.1" aria-label="表示最大">
-        </div>
-        <label>重み <input class="weight" data-name="${name}" type="range" min="0.1" max="5" step="0.1"></label>
-      `;
-      paramCards.append(card);
+          <p class="influence-note" id="influence-${name}"></p>
+        `;
+        section.append(card);
+      }
+      paramCards.append(section);
     }
     paramCards.querySelectorAll(".handle").forEach((handle) => {
       handle.addEventListener("pointerdown", (event) => {
@@ -527,6 +545,12 @@ function startControl() {
         handle.addEventListener("pointermove", onMove);
         handle.addEventListener("pointerup", onUp);
         move(event);
+      });
+    });
+    paramCards.querySelectorAll(".weight").forEach((input) => {
+      input.addEventListener("input", () => {
+        const name = input.dataset.name;
+        document.getElementById(`influence-${name}`).textContent = influenceText(clamp(input.value, 0.1, 5, 1));
       });
     });
     paramCards.querySelectorAll(".view-min, .view-max, .weight").forEach((input) => {
@@ -568,6 +592,7 @@ function startControl() {
       if (document.activeElement !== viewMin) viewMin.value = String(settings.displayMin[name]);
       if (document.activeElement !== viewMax) viewMax.value = String(settings.displayMax[name]);
       if (document.activeElement !== weight) weight.value = String(settings.weights[name]);
+      document.getElementById(`influence-${name}`).textContent = influenceText(settings.weights[name]);
       if (values && values[name] != null && !Number.isNaN(values[name])) {
         document.getElementById(`dot-${name}`).style.left = `${percent(name, values[name])}%`;
         document.getElementById(`live-${name}`).textContent = `現在 ${roundDigits(values[name], 3)}`;

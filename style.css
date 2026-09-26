@@ -185,9 +185,19 @@ input[type="range"] {
 
 #param-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(28rem, 1fr));
-  gap: 1.5rem 2rem;
+  gap: 2.5rem;
   margin-top: 1rem;
+}
+
+.axis-section h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1.35rem;
+  font-weight: 500;
+}
+
+.axis-section {
+  display: grid;
+  gap: 1.25rem;
 }
 
 .param-card {
@@ -239,7 +249,7 @@ input[type="range"] {
 .track {
   position: relative;
   flex: 1 1 auto;
-  height: 42px;
+  height: 72px;
   min-width: 12rem;
 }
 
@@ -302,12 +312,26 @@ select {
 }
 
 .handle {
-  width: 1px;
-  height: 16px;
-  background: var(--fg);
-  border: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 2px solid var(--fg);
+  box-shadow: 0 0 0 6px transparent;
   cursor: ew-resize;
   transform: translate(-50%, -50%);
+  z-index: 1;
+}
+
+.handle span {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.7rem;
+  color: var(--muted);
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .base-dot {
@@ -336,8 +360,25 @@ select {
   transform: translate(-50%, -50%);
 }
 
-.weight {
-  width: min(100%, 12rem);
+.influence {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.influence .weight {
+  flex: 1 1 auto;
+  width: auto;
+  max-width: none;
+}
+
+.influence-note {
+  margin: 0.35rem 0 0;
+  color: var(--fg);
+  font-size: 0.9rem;
 }
 
 html.overlay,
