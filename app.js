@@ -80,6 +80,7 @@ function defaultSettings() {
     host: "127.0.0.1",
     port: 8001,
     autoStart: false,
+    autoConnect: false,
     pollingMs: 200,
     alpha: 0.1,
     weights: { ...DEFAULT_WEIGHTS },
@@ -172,6 +173,7 @@ function loadStore(key) {
     if (typeof saved.host === "string" && saved.host.trim()) settings.host = saved.host.trim();
     settings.port = clamp(saved.port, 1, 65535, settings.port);
     settings.autoStart = Boolean(saved.autoStart);
+    settings.autoConnect = Boolean(saved.autoConnect);
     settings.pollingMs = clamp(saved.pollingMs, 50, 900, settings.pollingMs);
     settings.alpha = clamp(saved.alpha, 0.01, 1, settings.alpha);
     settings.alert = Boolean(saved.alert);
@@ -441,6 +443,7 @@ function startControl() {
   });
   portInput.value = String(settings.port);
   document.getElementById("auto-start").checked = settings.autoStart;
+  document.getElementById("auto-connect").checked = settings.autoConnect;
   document.getElementById("polling").value = String(settings.pollingMs);
   alphaInput.value = String(settings.alpha);
   alphaVal.textContent = settings.alpha.toFixed(2);
@@ -487,6 +490,7 @@ function startControl() {
     settings.port = clamp(portInput.value, 1, 65535, 8001);
     portInput.value = String(settings.port);
     settings.autoStart = document.getElementById("auto-start").checked;
+    settings.autoConnect = document.getElementById("auto-connect").checked;
     settings.pollingMs = clamp(document.getElementById("polling").value, 50, 900, 200);
     settings.alpha = clamp(alphaInput.value, 0.01, 1, 0.1);
     alphaVal.textContent = settings.alpha.toFixed(2);
@@ -962,12 +966,13 @@ function startControl() {
     document.getElementById("plate-fade-val").textContent = clamp(plateFadeInput.value, 0, 1, 0).toFixed(2);
   });
 
-  for (const id of ["host", "port", "auto-start", "polling", "alpha", "alert", "alert-from", "sound", "threshold", "duration", "cooldown", "volume", "overlay-style", "plate-fade", "score-mode", "show-gauge", "show-label", "show-title"]) {
+  for (const id of ["host", "port", "auto-start", "auto-connect", "polling", "alpha", "alert", "alert-from", "sound", "threshold", "duration", "cooldown", "volume", "overlay-style", "plate-fade", "score-mode", "show-gauge", "show-label", "show-title"]) {
     document.getElementById(id).addEventListener("change", readForm);
   }
 
   document.addEventListener("visibilitychange", updateHiddenWarn);
   updateHiddenWarn();
+  if (settings.autoConnect) openSession();
 }
 
 function startOverlay() {
