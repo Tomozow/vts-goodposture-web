@@ -227,7 +227,7 @@ class VtsClient {
         socket.removeEventListener("error", onError);
         resolve();
       };
-      const onError = () => fail(new Error("VTube Studio に接続できません"));
+      const onError = () => fail(new Error("VTube Studio が起動していないか、API が無効です"));
       socket.addEventListener("open", onOpen, { once: true });
       socket.addEventListener("error", onError, { once: true });
       socket.addEventListener("message", (event) => {
@@ -476,6 +476,7 @@ function startControl() {
   clearScore();
 
   function setStatus(text) {
+    if (status.textContent === text) return;
     status.textContent = text;
   }
 
@@ -712,12 +713,12 @@ function startControl() {
     hiddenWarn.hidden = document.visibilityState === "visible";
   }
 
-  async function openSession() {
+  async function openSession(quiet) {
     dismiss = false;
     window.clearTimeout(reconnectTimer);
     const current = ++session;
     readForm();
-    setStatus(`ws://127.0.0.1:${settings.port} に接続しています`);
+    if (!quiet) setStatus("接続しています");
     try {
       await client.connect(settings.host, settings.port);
       if (current !== session) return;
@@ -762,7 +763,7 @@ function startControl() {
     if (client.closedByUser) return;
     window.clearTimeout(reconnectTimer);
     reconnectTimer = window.setTimeout(() => {
-      openSession();
+      openSession(true);
     }, 2000);
   }
 
@@ -1005,6 +1006,7 @@ function startOverlay() {
   let dismissed = false;
 
   function showStatus(text) {
+    if (scoreEl.textContent === text && scoreEl.classList.contains("is-status")) return;
     scoreEl.textContent = text;
     scoreEl.classList.add("is-status");
     scoreEl.style.color = "";
@@ -1136,13 +1138,13 @@ function startOverlay() {
 
   function scheduleReconnect() {
     window.clearTimeout(reconnectTimer);
-    reconnectTimer = window.setTimeout(openSession, 2000);
+    reconnectTimer = window.setTimeout(() => openSession(true), 2000);
   }
 
-  async function openSession() {
+  async function openSession(quiet) {
     window.clearTimeout(reconnectTimer);
     const current = ++session;
-    showStatus("接続しています");
+    if (!quiet) showStatus("接続しています");
     if (client.ws) {
       client.close();
       client.closedByUser = false;
