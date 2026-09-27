@@ -31,6 +31,8 @@ const ALERT_PARAM_SPECS = [
   { parameterName: "PostureVisible", explanation: "1 while the control tab is visible", min: 0, max: 1, defaultValue: 0 },
   { parameterName: "PostureMonitoring", explanation: "1 while posture monitoring is running", min: 0, max: 1, defaultValue: 0 },
   { parameterName: "PostureDismiss", explanation: "1 when the control page disconnects", min: 0, max: 1, defaultValue: 0 },
+  { parameterName: "PostureIndependent", explanation: "1 when the overlay runs without the control tab", min: 0, max: 1, defaultValue: 0 },
+  { parameterName: "PosturePause", explanation: "1 when monitoring was stopped from the control tab", min: 0, max: 1, defaultValue: 0 },
 ];
 
 function scoreSyncSpecs() {
@@ -107,6 +109,8 @@ function defaultSettings() {
     showTitle: true,
     configured: false,
     monitoring: false,
+    independent: false,
+    paused: false,
   };
 }
 
@@ -192,6 +196,8 @@ function loadStore(key) {
     if (typeof saved.showTitle === "boolean") settings.showTitle = saved.showTitle;
     settings.configured = saved.configured === true;
     settings.monitoring = saved.monitoring === true;
+    settings.independent = saved.independent === true;
+    settings.paused = saved.paused === true;
   } catch (_) {
     /* 壊れた保存値は初期値のまま使う */
   }
@@ -435,6 +441,7 @@ function startControl() {
   let badSince = null;
   let lastSound = 0;
   let dismiss = false;
+  let paused = false;
 
   hostInput.value = settings.host;
   hostInput.addEventListener("input", () => {
@@ -444,6 +451,7 @@ function startControl() {
   portInput.value = String(settings.port);
   document.getElementById("auto-start").checked = settings.autoStart;
   document.getElementById("auto-connect").checked = settings.autoConnect;
+  document.getElementById("independent").checked = settings.independent;
   document.getElementById("polling").value = String(settings.pollingMs);
   alphaInput.value = String(settings.alpha);
   alphaVal.textContent = settings.alpha.toFixed(2);
@@ -491,6 +499,7 @@ function startControl() {
     portInput.value = String(settings.port);
     settings.autoStart = document.getElementById("auto-start").checked;
     settings.autoConnect = document.getElementById("auto-connect").checked;
+    settings.independent = document.getElementById("independent").checked;
     settings.pollingMs = clamp(document.getElementById("polling").value, 50, 900, 200);
     settings.alpha = clamp(alphaInput.value, 0.01, 1, 0.1);
     alphaVal.textContent = settings.alpha.toFixed(2);
@@ -542,6 +551,8 @@ function startControl() {
       { id: "PostureVisible", value: 1 },
       { id: "PostureMonitoring", value: monitoring ? 1 : 0 },
       { id: "PostureDismiss", value: dismiss ? 1 : 0 },
+      { id: "PostureIndependent", value: settings.independent ? 1 : 0 },
+      { id: "PosturePause", value: paused ? 1 : 0 },
       { id: "PostureAlpha", value: settings.alpha },
     ];
     for (const name of PARAMS) {
@@ -868,6 +879,7 @@ function startControl() {
       return;
     }
     monitoring = true;
+    paused = false;
     score = 100;
     paintScore(score);
     setStatus("監視中");
@@ -876,6 +888,7 @@ function startControl() {
 
   document.getElementById("stop").addEventListener("click", () => {
     monitoring = false;
+    paused = true;
     score = 100;
     if (client.connected) paintPaused();
     else clearScore();
@@ -966,7 +979,7 @@ function startControl() {
     document.getElementById("plate-fade-val").textContent = clamp(plateFadeInput.value, 0, 1, 0).toFixed(2);
   });
 
-  for (const id of ["host", "port", "auto-start", "auto-connect", "polling", "alpha", "alert", "alert-from", "sound", "threshold", "duration", "cooldown", "volume", "overlay-style", "plate-fade", "score-mode", "show-gauge", "show-label", "show-title"]) {
+  for (const id of ["host", "port", "auto-start", "auto-connect", "independent", "polling", "alpha", "alert", "alert-from", "sound", "threshold", "duration", "cooldown", "volume", "overlay-style", "plate-fade", "score-mode", "show-gauge", "show-label", "show-title"]) {
     document.getElementById(id).addEventListener("change", readForm);
   }
 
@@ -1184,9 +1197,36 @@ function startOverlay() {
       } else {
         const controlOpen = Number.isFinite(values.PostureVisible) && values.PostureVisible >= 0.5;
         const dismissing = Number.isFinite(values.PostureDismiss) && values.PostureDismiss >= 0.5;
-        if (dismissing) dismissed = true;
+        if (controlOpen) {
+          if (Number.isFinite(values.PostureIndependent)) {
+            const alone = values.PostureIndependent >= 0.5;
+            if (settings.independent !== alone) {
+              settings.independent = alone;
+              save();
+            }
+          }
+          if (Number.isFinite(values.PosturePause)) {
+            const held = values.PosturePause >= 0.5;
+            if (settings.paused !== held) {
+              settings.paused = held;
+              save();
+            }
+          }
+        }
+        const alone = settings.independent && !settings.paused;
+        if (dismissing && !alone) dismissed = true;
         else if (controlOpen) dismissed = false;
-        if (dismissed) {
+        const monitoringOn = !Number.isFinite(values.PostureMonitoring) || values.PostureMonitoring >= 0.5;
+        if (alone && !(controlOpen && monitoringOn && !dismissed)) {
+          useStoredSettings();
+          const faceReady = PARAMS.every((name) => Number.isFinite(values[name]));
+          if (!faceReady) showStatus("スコアを受信していません");
+          else {
+            const raw = calculateRawScore(values, settings.minLimits, settings.maxLimits, settings.weights);
+            ownScore = ownScore == null ? raw : applyEma(ownScore, raw, settings.alpha);
+            showScore(ownScore);
+          }
+        } else if (dismissed) {
           ownScore = null;
           badSince = null;
           showStatus("切断しました");
@@ -1200,7 +1240,6 @@ function startOverlay() {
             }
           }
           rememberSettings(values);
-          const monitoringOn = !Number.isFinite(values.PostureMonitoring) || values.PostureMonitoring >= 0.5;
           if (!monitoringOn) showPaused();
           else if (!Number.isFinite(values[PARAM_NAME])) showStatus("スコアを受信していません");
           else showScore(roundDigits(values[PARAM_NAME], 2));
@@ -1214,6 +1253,9 @@ function startOverlay() {
             ownScore = ownScore == null ? raw : applyEma(ownScore, raw, settings.alpha);
             showScore(ownScore);
           }
+        } else if (settings.paused) {
+          useStoredSettings();
+          showPaused();
         } else if (settings.configured) {
           useStoredSettings();
           showPaused();
