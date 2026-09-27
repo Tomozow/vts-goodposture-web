@@ -244,7 +244,7 @@ class VtsClient {
       socket.addEventListener("close", (event) => {
         if (socket.ignoreClose) return;
         const reason = event.code === 1006
-          ? "ローカル接続が拒否された可能性があります。Chrome のローカルネットワークアクセスを許可してください"
+          ? "VTube Studio が起動していないか、API が無効です"
           : `切断されました (${event.code})`;
         this.failPending(new Error(reason));
         if (this.onClose && !this.closedByUser) this.onClose(event.code, reason);
@@ -1176,8 +1176,9 @@ function startOverlay() {
         showStatus("スコアを受信していません");
       } else {
         const controlOpen = Number.isFinite(values.PostureVisible) && values.PostureVisible >= 0.5;
-        if (controlOpen) dismissed = false;
-        else if (Number.isFinite(values.PostureDismiss) && values.PostureDismiss >= 0.5) dismissed = true;
+        const dismissing = Number.isFinite(values.PostureDismiss) && values.PostureDismiss >= 0.5;
+        if (dismissing) dismissed = true;
+        else if (controlOpen) dismissed = false;
         if (dismissed) {
           ownScore = null;
           badSince = null;
