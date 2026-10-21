@@ -342,6 +342,18 @@ input[type="range"] {
   font-weight: 500;
 }
 
+.axis-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.axis-section.is-off .param-card {
+  opacity: 0.45;
+}
+
 .axis-note {
   margin: 0.2rem 0 0.75rem;
   color: var(--muted);

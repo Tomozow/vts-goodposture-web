@@ -11,6 +11,8 @@ const DEFAULT_WEIGHTS = {
   FacePositionY: 1.5,
   FacePositionZ: 2.0,
 };
+const AXES = ["X", "Y", "Z"];
+const DEFAULT_ENABLED_AXES = { X: false, Y: true, Z: false };
 const PARAM_NAME = "PostureScore";
 const PLUGIN_DEVELOPER = "Developer";
 const ALERT_PARAM_SPECS = [
@@ -39,6 +41,9 @@ function scoreSyncSpecs() {
   const specs = [
     { parameterName: "PostureAlpha", explanation: "Smoothing alpha for the posture score", min: 0, max: 1, defaultValue: 0.1 },
   ];
+  for (const axis of AXES) {
+    specs.push({ parameterName: `PostureEnabled${axis}`, explanation: `1 when Face ${axis} is used for the score`, min: 0, max: 1, defaultValue: 0 });
+  }
   for (const name of PARAMS) {
     const angle = name.includes("Angle");
     const min = angle ? -180 : -50;
@@ -86,6 +91,7 @@ function defaultSettings() {
     pollingMs: 200,
     alpha: 0.1,
     weights: { ...DEFAULT_WEIGHTS },
+    enabledAxes: { ...DEFAULT_ENABLED_AXES },
     displayMin: defaultFace(-30, -5),
     displayMax: defaultFace(30, 5),
     baseline: defaultFace(0, 0),
@@ -119,10 +125,11 @@ function roundDigits(value, digits) {
   return Math.round(value * factor) / factor;
 }
 
-function calculateRawScore(current, minLimits, maxLimits, weights) {
+function calculateRawScore(current, minLimits, maxLimits, weights, enabledAxes) {
   let totalWeight = 0;
   let weightedPenalty = 0;
   for (const name of PARAMS) {
+    if (!enabledAxes[name.slice(-1)]) continue;
     const value = current[name];
     if (value == null || Number.isNaN(value)) continue;
     const minLimit = minLimits[name];
@@ -171,6 +178,11 @@ function loadStore(key) {
             settings[group][name] = Number(saved[group][name]);
           }
         }
+      }
+    }
+    if (saved.enabledAxes && typeof saved.enabledAxes === "object") {
+      for (const axis of AXES) {
+        if (typeof saved.enabledAxes[axis] === "boolean") settings.enabledAxes[axis] = saved.enabledAxes[axis];
       }
     }
     if (typeof saved.token === "string") settings.token = saved.token;
@@ -555,6 +567,9 @@ function startControl() {
       { id: "PosturePause", value: paused ? 1 : 0 },
       { id: "PostureAlpha", value: settings.alpha },
     ];
+    for (const axis of AXES) {
+      values.push({ id: `PostureEnabled${axis}`, value: settings.enabledAxes[axis] ? 1 : 0 });
+    }
     for (const name of PARAMS) {
       values.push(
         { id: `PostureMin${name}`, value: settings.minLimits[name] },
@@ -607,10 +622,16 @@ function startControl() {
       Y: "上下の向きと、上下の位置です。",
       Z: "横への傾きと、前後の位置です。",
     };
-    for (const axis of ["X", "Y", "Z"]) {
+    for (const axis of AXES) {
       const section = document.createElement("section");
       section.className = "axis-section";
-      section.innerHTML = `<h3>Face ${axis}</h3><p class="axis-note">${axisNotes[axis]}</p>`;
+      section.dataset.axis = axis;
+      section.innerHTML = `
+        <div class="axis-head">
+          <h3>Face ${axis}</h3>
+          <label class="check"><input class="axis-enabled" data-axis="${axis}" type="checkbox"> 判定に使う</label>
+        </div>
+        <p class="axis-note">${axisNotes[axis]}</p>`;
       for (const kind of ["Angle", "Position"]) {
         const name = `Face${kind}${axis}`;
         const card = document.createElement("div");
@@ -671,6 +692,13 @@ function startControl() {
         move(event);
       });
     });
+    paramCards.querySelectorAll(".axis-enabled").forEach((input) => {
+      input.addEventListener("change", () => {
+        settings.enabledAxes[input.dataset.axis] = input.checked;
+        save();
+        paintParamCards();
+      });
+    });
     paramCards.querySelectorAll(".weight").forEach((input) => {
       input.addEventListener("input", () => {
         const name = input.dataset.name;
@@ -697,6 +725,11 @@ function startControl() {
   }
 
   function paintParamCards(values) {
+    for (const axis of AXES) {
+      const on = settings.enabledAxes[axis];
+      paramCards.querySelector(`.axis-enabled[data-axis="${axis}"]`).checked = on;
+      paramCards.querySelector(`.axis-section[data-axis="${axis}"]`).classList.toggle("is-off", !on);
+    }
     for (const name of PARAMS) {
       const minPct = percent(name, settings.minLimits[name]);
       const maxPct = percent(name, settings.maxLimits[name]);
@@ -823,7 +856,7 @@ function startControl() {
         const values = readListedParams(listed);
         if (values) {
           paintParamCards(values);
-          const raw = calculateRawScore(values, settings.minLimits, settings.maxLimits, settings.weights);
+          const raw = calculateRawScore(values, settings.minLimits, settings.maxLimits, settings.weights, settings.enabledAxes);
           score = applyEma(score, raw, settings.alpha);
           paintScore(score);
           scoreValue = score;
@@ -1098,6 +1131,10 @@ function startOverlay() {
       settings.maxLimits[name] = maxLimit;
       settings.weights[name] = clamp(weight, 0.1, 5, settings.weights[name]);
     }
+    for (const axis of AXES) {
+      const enabled = values[`PostureEnabled${axis}`];
+      if (Number.isFinite(enabled)) settings.enabledAxes[axis] = enabled >= 0.5;
+    }
     settings.alert = alertOn;
     settings.threshold = threshold;
     settings.duration = duration;
@@ -1222,7 +1259,7 @@ function startOverlay() {
           const faceReady = PARAMS.every((name) => Number.isFinite(values[name]));
           if (!faceReady) showStatus("スコアを受信していません");
           else {
-            const raw = calculateRawScore(values, settings.minLimits, settings.maxLimits, settings.weights);
+            const raw = calculateRawScore(values, settings.minLimits, settings.maxLimits, settings.weights, settings.enabledAxes);
             ownScore = ownScore == null ? raw : applyEma(ownScore, raw, settings.alpha);
             showScore(ownScore);
           }
@@ -1249,7 +1286,7 @@ function startOverlay() {
           if (!faceReady) {
             showStatus("スコアを受信していません");
           } else {
-            const raw = calculateRawScore(values, settings.minLimits, settings.maxLimits, settings.weights);
+            const raw = calculateRawScore(values, settings.minLimits, settings.maxLimits, settings.weights, settings.enabledAxes);
             ownScore = ownScore == null ? raw : applyEma(ownScore, raw, settings.alpha);
             showScore(ownScore);
           }
