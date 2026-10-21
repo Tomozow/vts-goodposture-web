@@ -2,6 +2,8 @@
 
 VTube Studio の顔の向きと位置から姿勢スコアを計算し、カスタムパラメータ `PostureScore`（0〜100）へ書き込みます。配信画面用のチェッカーは GitHub Pages の同じ URL を OBS ブラウザソースに置きます。
 
+![スクリーンショット](docs/screenshot.png)
+
 Python 版の姿勢モニターとは同時に起動しないでください。同時に書くと VTube Studio が注入を拒否します。Web 版でトークンを取り直すと、Python 版 `config.json` のトークンは無効になります。
 
 ## Chrome で開くページ
